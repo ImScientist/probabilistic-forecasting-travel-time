@@ -2,10 +2,12 @@ import io
 import os
 import logging
 import tempfile
+import functools
 import numpy as np
 import pandas as pd
 import scipy.stats as sc
 import tensorflow as tf
+import tensorflow_addons as tfa
 import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans, MiniBatchKMeans
@@ -23,6 +25,9 @@ dtype = tf.float32
 
 logger = logging.getLogger(__name__)
 
+# Check if the host and my machine are synchronized
+CONTROL_VAR = 123
+
 
 def lognormal_pdf(loc, scale):
     """ Lognormal definition as in Wikipedia (FU scipy) """
@@ -39,6 +44,15 @@ def neg_log_likelihood(y, rv_y):
     """ negative log-likelihood """
 
     return -rv_y.log_prob(y)
+
+
+def pinball_loss(quantiles: tuple = (.1, .3, .5, .7, .9)):
+    tau = tf.constant(list(quantiles), dtype=dtype)
+
+    def loss_fn(y, y_pred):
+        return tfa.losses.pinball_loss(y, y_pred, tau=tau)
+
+    return loss_fn
 
 
 def fit_cluster(cluster: KMeans, df: pd.DataFrame, sample_size: int = 10_000):
@@ -324,7 +338,7 @@ def get_model(
 ) -> tf.keras.Model:
     """ Construct the model """
 
-    assert distribution in ('normal', 'gamma', 'lognormal', 'shifted_gamma')
+    assert distribution in ('normal', 'lognormal')
 
     all_inputs, encoded_features = model_input_layer(ds)
 
@@ -338,63 +352,74 @@ def get_model(
             dropout=dropout,
             dropout_min_layer_size=dropout_min_layer_size,
             batch_normalization=batch_normalization,
-            name=f'cl_{i}'
-        )
+            name=f'cl_{i}')
 
-    # no regularization in the last layer; no dropout
-    # scale=1e-3 + tf.math.softplus(0.05 * t[..., 1:])
-    if distribution == 'normal':
-        x = tfkl.Dense(2)(x)
+    # last layer: no regularization, no dropout
+    x1 = tfkl.Dense(1)(x)
+    x2 = tfkl.Dense(1, activation='softplus')(x)
+    x2 = tfkl.Lambda(lambda t: t + tf.constant(1e-3, dtype=dtype))(x2)
+    x = tfkl.Concatenate(axis=-1)([x1, x2])
 
-        output = tfp.layers.DistributionLambda(
-            lambda t: tfd.Normal(
-                loc=t[..., :1],
-                scale=tf.constant(1e-3, dtype=dtype) + tf.math.softplus(t[..., 1:])
-            ),
-            name=distribution
-        )(x)
+    dist = tfd.Normal if distribution == 'normal' else tfd.LogNormal
 
-    elif distribution == 'gamma':
-        x = tfkl.Dense(2, activation='softplus')(x)
+    output = tfp.layers.DistributionLambda(
+        lambda t: dist(loc=t[..., :1], scale=t[..., 1:]),
+        name=distribution
+    )(x)
 
-        output = tfp.layers.DistributionLambda(
-            lambda t: tfd.Gamma(
-                concentration=t[..., :1],
-                rate=t[..., 1:]
-            ),
-            name=distribution
-        )(x)
+    model = tf.keras.Model(all_inputs, output)
+    model.compile(
+        optimizer=tf.optimizers.Adam(learning_rate=0.01),
+        loss=neg_log_likelihood)
 
-    elif distribution == 'lognormal':
-        x = tfkl.Dense(2)(x)
+    return model
 
-        output = tfp.layers.DistributionLambda(
-            lambda t: tfd.LogNormal(
-                loc=t[..., :1],
-                scale=tf.constant(1e-3, dtype=dtype) + tf.math.softplus(t[..., 1:])
-            ),
-            name=distribution
-        )(x)
 
-    else:
-        x = tfkl.Dense(3, activation='softplus')(x)
+def get_model_iqf(
+        ds: tf.data.Dataset,
+        layer_sizes: tuple = (32, 32, 8),
+        l2: float = 0.001,
+        dropout: float = 0,
+        dropout_min_layer_size: int = 12,
+        batch_normalization: bool = False,
+        quantiles: tuple = (.1, .3, .5, .7, .9)
+):
+    """ Model to predict multiple quantiles/percentiles
 
-        output = tfp.layers.DistributionLambda(
-            lambda t: tfd.TransformedDistribution(
-                distribution=tfd.Gamma(
-                    concentration=t[..., :1],
-                    rate=t[..., 1:2]
-                ),
-                bijector=tfb.Shift(t[..., 2:])
-            ),
-            name=distribution
-        )(x)
+    Prevent the quantile crossing
+    """
+
+    n_quantiles = len(quantiles)
+    # tau = tf.constant(quantiles, dtype=dtype)
+    loss_fn = pinball_loss(quantiles=quantiles)
+
+    all_inputs, encoded_features = model_input_layer(ds)
+
+    x = tf.keras.layers.concatenate(encoded_features)
+
+    for i, layer_size in enumerate(layer_sizes):
+        x = composite_layer(
+            x,
+            layer_sizes=layer_size,
+            l2=l2,
+            dropout=dropout,
+            dropout_min_layer_size=dropout_min_layer_size,
+            batch_normalization=batch_normalization,
+            name=f'cl_{i}')
+
+    x1 = tfkl.Dense(1)(x)
+    x2 = tfkl.Dense(n_quantiles - 1, activation='softplus')(x)
+    x = tfkl.Concatenate(axis=-1)([x1, x2])
+
+    # monotonically increasing outputs
+    output = tfkl.Lambda(lambda y: tf.cumsum(y, axis=-1))(x)
 
     model = tf.keras.Model(all_inputs, output)
 
     model.compile(
         optimizer=tf.optimizers.Adam(learning_rate=0.01),
-        loss=neg_log_likelihood
+        loss=loss_fn
+        # loss=functools.partial(tfa.losses.pinball_loss, tau=tau)
     )
 
     return model
@@ -403,7 +428,8 @@ def get_model(
 def plot_to_image(figure):
     """
         Converts the matplotlib plot specified by 'figure' to a PNG image and
-        returns it. The supplied figure is closed and inaccessible after this call.
+        returns it. The supplied figure is closed and inaccessible after this
+        call.
     """
 
     # Save the plot to a PNG in memory.
@@ -433,8 +459,7 @@ def store_model_architecture(model, log_dir: str):
             model,
             to_file=temp.name,
             show_shapes=True,
-            dpi=64
-        )
+            dpi=64)
 
         im_frame = Image.open(temp.name)
         im_frame = np.asarray(im_frame)
@@ -449,42 +474,33 @@ def store_model_architecture(model, log_dir: str):
                              step=0)
 
 
-def store_model_predictions(model, ds, log_dir: str, clusters: int = 20):
-    """ Compare predicted distributions against observations """
+def fig_clustered_predictions(
+        df: pd.DataFrame,
+        clusters: int = 20,
+        distribution_name: str = 'normal'
+):
+    """
+        Plot distributions of observations with the same
+        predicted distribution params p1, p2
 
-    distribution = model.layers[-1].name
-
-    model_deterministic = tf.keras.Model(inputs=model.inputs,
-                                         outputs=[model.layers[-2].output])
-
-    df = pd.DataFrame()
-
-    # target
-    df['y'] = np.hstack(list(ds.map(lambda x, y: y).as_numpy_iterator()))
-
-    # predict distribution parameters
-    df[['p1', 'p2']] = model_deterministic.predict(ds.map(lambda x, y: x))
-
-    if distribution in ('normal', 'lognormal'):
-        df['p2'] = 1e-3 + tf.math.softplus(df['p2'])
+    Params
+    ------
+      df: table with the columns p1, p2, p_cluster
+    """
 
     # cluster distributions based on the similarity of their trainable params
     clustering_pipe = Pipeline([
         ('scaling', StandardScaler()),
-        ('clustering', MiniBatchKMeans(n_clusters=clusters))
-    ])
+        ('clustering', MiniBatchKMeans(n_clusters=clusters))])
 
     df['p_cluster'] = clustering_pipe.fit_predict(df[['p1', 'p2']].values)
 
+    # relative number of elements per cluster
     sizes = (df
              .groupby(['p_cluster'])
              .agg(n=('p1', 'count'))
              .assign(n=lambda x: x / df.shape[0]))
 
-    """
-        Plot distributions of observations with the same
-        predicted distribution params p1, p2
-    """
     rows = clusters // 2
     cols = 2
 
@@ -506,9 +522,9 @@ def store_model_predictions(model, ds, log_dir: str, clusters: int = 20):
         p1_mean = df.loc[cond, 'p1'].mean()
         p2_mean = df.loc[cond, 'p2'].mean()
 
-        if distribution == 'normal':
+        if distribution_name == 'normal':
             pdf = sc.norm(loc=p1_mean, scale=p2_mean).pdf
-        elif distribution == 'lognormal':
+        elif distribution_name == 'lognormal':
             pdf = lognormal_pdf(loc=p1_mean, scale=p2_mean)
         else:
             pdf = sc.gamma(a=p1_mean, scale=1 / p2_mean).pdf
@@ -517,14 +533,150 @@ def store_model_predictions(model, ds, log_dir: str, clusters: int = 20):
 
         ax.legend()
 
-    """ Log the figure """
+    return fig
+
+
+def fig_mean_to_std_distribution(df: pd.DataFrame):
+    """
+        Plot the distribution of the mean to standard deviation ratios
+        of the predicted distributions
+    """
+
+    label = 'mean to std ratio of predicted distributions'
+
+    fig = plt.figure()
+    plt.hist(df['mean'] / df['std'], bins=100, label=label)
+    plt.legend()
+
+    return fig
+
+
+def fig_median_to_pct_range_distribution(
+        df: pd.DataFrame, qtile_range: tuple[int, int]
+):
+    """
+        Plot the distribution of the ratio btw the median and some percentile
+        range.
+    """
+
+    label = 'mean to std ratio of predicted distributions'
+    q1, q2 = qtile_range
+    c1, c2 = f'q_{int(q1 * 100):03d}', f'q_{int(q2 * 100):03d}'
+
+    fig = plt.figure()
+    plt.hist(df['q_050'] / (df[c2] - df[c1]), bins=100, label=label)
+    plt.legend()
+
+    return fig
+
+
+def fig_pct_skew(df: pd.DataFrame):
+    """
+        Plot distribution percentile of true values vs fraction of
+        observations that belong to a lower percentile
+
+    Params
+    ------
+      df: table with the columns:
+         `pct`: percentile to which the observed value corresponds to
+         `frac`: fraction of observations that belong to a lower predicted
+              percentile
+    """
+
+    label = ('Predicted percentile vs fraction of observations '
+             'that belong to a lower predicted percentile')
+
+    fig = plt.figure(figsize=(15, 10))
+    plt.scatter(df['pct'], df['frac'], alpha=0.2, s=20, label=label)
+    plt.plot([0, 1], [0, 1], color='black', linestyle='dashed')
+    plt.legend()
+
+    return fig
+
+
+def fig_pct_skew_discrete(df: pd.DataFrame, quantiles: list):
+    """
+        For a discrete number of predicted percentiles calculate and visualize
+        the fraction of observations that are below this percentile
+
+    Params
+    ------
+      df: table with the columns:
+         q_< pct >: predicted distribution percentiles
+         y: observed value
+    """
+
+    frac = [(df['y'] < df[f'q_{int(q * 100):03d}']).mean()
+            for q in quantiles]
+
+    label = ('Predicted percentile vs fraction of observations \n'
+             'that belong to a lower predicted percentile')
+
+    fig = plt.figure()
+    plt.scatter(quantiles, frac, label=label)
+    plt.plot([0, 1], [0, 1], color='black', linestyle='dashed')
+    plt.legend()
+
+    return fig
+
+
+def store_model_predictions(model, ds, log_dir: str, clusters: int = 20):
+    """ Compare predicted distributions against observations """
+
     save_dir = os.path.join(log_dir, 'train')
     file_writer = tf.summary.create_file_writer(save_dir)
 
+    distribution_name = model.layers[-1].name
+    distribution_fn = model.layers[-1].function
+
+    model_deterministic = tf.keras.Model(
+        inputs=model.inputs,
+        outputs=[model.layers[-2].output])
+
+    df = pd.DataFrame()
+
+    df['y'] = np.hstack(list(ds.map(lambda x, y: y).as_numpy_iterator()))
+
+    # predict distribution parameters
+    df[['p1', 'p2']] = model_deterministic.predict(ds.map(lambda x, y: x))
+
+    distribution = distribution_fn(df[['p1', 'p2']].values)[0]
+
+    df['mean'] = distribution.mean()
+    df['std'] = distribution.stddev()
+    df['pct'] = distribution.cdf(df[['y']].values)
+
+    # fraction of prediction with lower percentile
+    df = df.assign(frac=lambda x: (x['pct'].sort_values() * 0 + 1).cumsum() / x.shape[0])
+
+    """
+        Figures
+    """
+
+    fig = fig_clustered_predictions(
+        df=df, clusters=clusters, distribution_name=distribution_name)
+
     with file_writer.as_default():
-        tf.summary.image("predicted distributions", plot_to_image(fig), step=0)
+        name = "predicted distributions"
+        img = plot_to_image(fig)
+        tf.summary.image(name, img, step=0)
+
+    fig = fig_mean_to_std_distribution(df=df)
+
+    with file_writer.as_default():
+        name = "mean to std ratio of predicted distributions"
+        img = plot_to_image(fig)
+        tf.summary.image(name, img, step=0)
+
+    fig = fig_pct_skew(df.iloc[:1_000])
+
+    with file_writer.as_default():
+        name = 'Predicted pct vs frac of observations with lower predicted pct'
+        img = plot_to_image(fig)
+        tf.summary.image(name, img, step=0)
 
 
+# TODO: modify for the quantile loss fn
 def train_evaluate(
         model,
         ds_tr,
@@ -536,7 +688,8 @@ def train_evaluate(
         reduce_lr_patience: int = 100,
         histogram_freq: int = 0,
         profile_batch: tuple = (10, 15),
-        verbose: int = 0
+        verbose: int = 0,
+        evaluate: bool = True
 ):
     callbacks = [
         tfkc.TensorBoard(log_dir=log_dir,
@@ -555,9 +708,9 @@ def train_evaluate(
             tfkc.EarlyStopping(patience=early_stopping_patience))
 
     if save_dir:
-        checkpoint_path = os.path.join(save_dir, 'checkpoints', 'cp.ckpt')
+        path = os.path.join(save_dir, 'checkpoints', 'cp.ckpt')
         callbacks.append(
-            tfkc.ModelCheckpoint(checkpoint_path,
+            tfkc.ModelCheckpoint(path,
                                  save_weights_only=True,
                                  save_best_only=True))
 
@@ -579,7 +732,8 @@ def train_evaluate(
     model.evaluate(ds_tr)
     model.evaluate(ds_va)
 
-    store_model_predictions(model, ds_va.take(1), log_dir)
+    if evaluate:
+        store_model_predictions(model, ds_va.take(1), log_dir)
 
 
 def load_model(model_dir: str):
