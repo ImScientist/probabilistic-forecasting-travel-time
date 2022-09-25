@@ -6,37 +6,26 @@ from google.cloud import bigquery
 logger = logging.getLogger(__name__)
 
 
-def get_query(month: int):
-    """ Get data """
+def get_data_bq(month: int, project_id: str):
+    """ Get NYC taxi trip data from BigQuery """
+
+    logger.info(f'Collect data for month {month}')
 
     query = f"""
         SELECT
           vendor_id,
           pickup_datetime,
           dropoff_datetime,
-          pickup_longitude,
-          pickup_latitude,
-          dropoff_longitude,
-          dropoff_latitude,
+          pickup_location_id,
+          dropoff_location_id,
           trip_distance,
-          passenger_count,
-          fare_amount,
+          passenger_count
         FROM `bigquery-public-data.new_york_taxi_trips.tlc_yellow_trips_2016`
         WHERE EXTRACT(MONTH FROM pickup_datetime) = {month}
         ORDER BY pickup_datetime
     """
 
-    return query
-
-
-def get_data_bq(month: int, project_id: str):
-    """ Get NYC taxi trip data from BigQuery """
-
     bq_client = bigquery.Client(project=project_id, location='US')  # noqa
-
-    query = get_query(month)
-
-    logger.info(f"Execute query ... {query}")
 
     job_config = bigquery.QueryJobConfig(
         allow_large_results=True,
@@ -61,5 +50,6 @@ def get_data_bq_all(project_id: str, save_dir: str):
 
     for month in range(1, 13):
         df = get_data_bq(month=month, project_id=project_id)
-        path = os.path.join(save_dir, f'data_2016_{month}.parquet')
+        path = os.path.join(save_dir, f'data_2016_{month:02d}.parquet')
+        logger.info(f'Store data in {path}')
         df.to_parquet(path)

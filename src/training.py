@@ -15,10 +15,9 @@ from src.evaluation import (
     evaluate_percentile_model,
     evaluate_parametrized_pdf_model)
 
-from src.model import (
-    df_to_dataset,
-    get_model,
-    get_model_iqf)
+from src.dataset import df_to_dataset_01, df_to_dataset_02
+
+from src.models.models import get_model_parametrized_dist, get_model_iqf
 
 tfkl = tf.keras.layers
 tfkc = tf.keras.callbacks
@@ -63,6 +62,56 @@ def store_model_architecture(model, log_dir: str):
                              step=0)
 
 
+def create_callbacks(
+        log_dir: str,
+        save_dir: str = None,
+        histogram_freq: int = 0,
+        reduce_lr_patience: int = 100,
+        profile_batch: tuple = (10, 15),
+        verbose: int = 0,
+        early_stopping_patience: int = 250,
+):
+    """ Generate model training callbacks """
+
+    callbacks = [
+        tfkc.TensorBoard(log_dir=log_dir,
+                         histogram_freq=histogram_freq,
+                         profile_batch=profile_batch)]
+
+    if reduce_lr_patience is not None:
+        callbacks.append(
+            tfkc.ReduceLROnPlateau(factor=0.2,
+                                   patience=reduce_lr_patience,
+                                   verbose=verbose))
+
+    if early_stopping_patience is not None:
+        callbacks.append(
+            tfkc.EarlyStopping(patience=early_stopping_patience))
+
+    if save_dir:
+        path = os.path.join(save_dir, 'checkpoints', 'cp.ckpt')
+        callbacks.append(
+            tfkc.ModelCheckpoint(path,
+                                 save_weights_only=True,
+                                 save_best_only=True))
+
+    return callbacks
+
+
+def create_datesets(
+        df_tr: pd.DataFrame,
+        df_va: pd.DataFrame,
+        df_te: pd.DataFrame,
+        df_to_dataset_fn,
+        **kwargs
+):
+    ds_tr = df_to_dataset_fn(df=df_tr, **kwargs)
+    ds_val = df_to_dataset_fn(df=df_va, **kwargs)
+    ds_te = df_to_dataset_fn(df=df_te, **{**kwargs, 'shuffle_buffer_size': 0})
+
+    return ds_tr, ds_val, ds_te
+
+
 def train_evaluate(
         model,
         cluster: KMeans,
@@ -83,28 +132,14 @@ def train_evaluate(
 ):
     """ Train and evaluate a model """
 
-    callbacks = [
-        tfkc.TensorBoard(log_dir=log_dir,
-                         histogram_freq=histogram_freq,
-                         profile_batch=profile_batch)
-    ]
-
-    if reduce_lr_patience is not None:
-        callbacks.append(
-            tfkc.ReduceLROnPlateau(factor=0.2,
-                                   patience=reduce_lr_patience,
-                                   verbose=verbose))
-
-    if early_stopping_patience is not None:
-        callbacks.append(
-            tfkc.EarlyStopping(patience=early_stopping_patience))
-
-    if save_dir:
-        path = os.path.join(save_dir, 'checkpoints', 'cp.ckpt')
-        callbacks.append(
-            tfkc.ModelCheckpoint(path,
-                                 save_weights_only=True,
-                                 save_best_only=True))
+    callbacks = create_callbacks(
+        log_dir=log_dir,
+        save_dir=save_dir,
+        histogram_freq=histogram_freq,
+        reduce_lr_patience=reduce_lr_patience,
+        profile_batch=profile_batch,
+        verbose=verbose,
+        early_stopping_patience=early_stopping_patience)
 
     store_model_architecture(model, log_dir)
 
@@ -162,29 +197,19 @@ def run(
 
     idx_tr, idx_val, idx_te = train_val_test_split(df.index)
 
-    ds_tr = df_to_dataset(
-        df=df.loc[idx_tr],
+    dataset_args = dict(
         cluster=cluster,
         shuffle_buffer_size=0,  # noqa
         batch_size=batch_size,
         prefetch_size=prefetch_size,
         cache=True)
 
-    ds_val = df_to_dataset(
-        df=df.loc[idx_val],
-        cluster=cluster,
-        shuffle_buffer_size=0,  # noqa
-        batch_size=batch_size,
-        prefetch_size=prefetch_size,
-        cache=True)
-
-    ds_te = df_to_dataset(
-        df=df.loc[idx_te],
-        cluster=cluster,
-        shuffle_buffer_size=0,  # noqa
-        batch_size=batch_size,
-        prefetch_size=prefetch_size,
-        cache=True)
+    ds_tr, ds_val, ds_te = create_datesets(
+        df.loc[idx_tr],
+        df.loc[idx_val],
+        df.loc[idx_te],
+        df_to_dataset_01,
+        **dataset_args)
 
     if use_percentile_model:
         quantiles = (.1, .3, .5, .7, .9)
@@ -192,6 +217,7 @@ def run(
 
         model = get_model_iqf(
             ds=ds_tr,
+
             layer_sizes=(32, (32, 32), 8),
             l2=0.001,  # noqa
             dropout=0,  # noqa
@@ -202,7 +228,7 @@ def run(
         quantiles = None
         qtile_range = None
 
-        model = get_model(
+        model = get_model_parametrized_dist(
             ds=ds_tr,
             layer_sizes=(32, (32, 32), 8),
             l2=0.001,  # noqa

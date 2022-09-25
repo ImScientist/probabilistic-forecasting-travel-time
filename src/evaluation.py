@@ -136,16 +136,24 @@ def fig_mean_to_std_distribution(df: pd.DataFrame):
 
 
 def fig_median_to_pct_range_distribution(
-        df: pd.DataFrame, qtile_range: tuple[int, int]
+        df: pd.DataFrame, qtile_range: tuple[float, float]
 ):
     """
         Plot the distribution of the ratio btw the median and some percentile
         range.
+
+    Params
+    ------
+      df: table with the columns:
+          `q_050`: median
+          `q_<quantile 1>`: first element of qtile_range
+          `q_<quantile 2>`: second element of qtile_range
+      qtile_range:
     """
 
-    label = 'mean to std ratio of predicted distributions'
     q1, q2 = qtile_range
     c1, c2 = f'q_{int(q1 * 100):03d}', f'q_{int(q2 * 100):03d}'
+    label = f'median to ({c2} - {c1}) ratio of predicted distributions'
 
     fig = plt.figure()
     plt.hist(df['q_050'] / (df[c2] - df[c1]), bins=100, label=label)
@@ -162,8 +170,8 @@ def fig_pct_skew(df: pd.DataFrame):
     Params
     ------
       df: table with the columns:
-         `pct`: percentile to which the observed value corresponds to
-         `frac`: fraction of observations that belong to a lower predicted
+          `pct`: percentile to which the observed value corresponds to
+          `frac`: fraction of observations that belong to a lower predicted
               percentile
     """
 
@@ -208,8 +216,8 @@ def evaluate_percentile_model(
         model,
         ds,
         log_dir: str,
-        quantiles: list,
-        qtile_range: tuple[int, int] = None
+        quantiles: tuple,
+        qtile_range: tuple[float, float]
 ):
     """ Compare predicted percentiles against observations """
 
@@ -229,13 +237,12 @@ def evaluate_percentile_model(
         img = plot_to_image(fig)
         tf.summary.image(name, img, step=0)
 
-    if qtile_range is not None:
-        fig = fig_median_to_pct_range_distribution(df, qtile_range=qtile_range)
+    fig = fig_median_to_pct_range_distribution(df, qtile_range=qtile_range)
 
-        with file_writer.as_default():
-            name = "median to pct-range of predicted distributions"
-            img = plot_to_image(fig)
-            tf.summary.image(name, img, step=0)
+    with file_writer.as_default():
+        name = "median to pct-range of predicted distributions"
+        img = plot_to_image(fig)
+        tf.summary.image(name, img, step=0)
 
 
 def evaluate_parametrized_pdf_model(model, ds, log_dir: str, clusters: int = 20):

@@ -1,6 +1,7 @@
 PROJECT_ID = "ai-ta-test"
-# GCS_BUCKET = "ims-dataset"
 DATA_DIR = "/home/ai/Data/nyc_taxi"
+
+# not used yet....
 CLUSTERS = 20
 BATCH_SIZE = 2 ** 15  # 32768
 L2 = 1e-3  # L2 regularization strength

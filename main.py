@@ -1,21 +1,16 @@
-import io
 import os
 
 import logging
-import numpy as np
 import pandas as pd
-import datetime as dt
-import matplotlib.pyplot as plt
 
 import tensorflow as tf
 import tensorflow_probability as tfp
 
 from sklearn.cluster import KMeans
 from sklearn.model_selection import train_test_split
-from keras.utils.vis_utils import plot_model
 
 from src import settings
-from src.model import (
+from src.models.model import (
     df_to_dataset,
     get_model,
     train)
