@@ -19,6 +19,12 @@ from src.dataset import df_to_dataset_01, df_to_dataset_02
 
 from src.models.models import get_model_parametrized_dist, get_model_iqf
 
+from src.my_models.my_models import (
+    MyModel,
+    MyModelClusteredLocation,
+    MyModelClusteredLocationIQF,
+    MyModelClusteredLocationParametrizedPDF)
+
 tfkl = tf.keras.layers
 tfkc = tf.keras.callbacks
 tfd = tfp.distributions
@@ -57,9 +63,10 @@ def store_model_architecture(model, log_dir: str):
         file_writer = tf.summary.create_file_writer(save_dir)
 
         with file_writer.as_default():
-            tf.summary.image("model summary",
-                             tf.constant(im_frame, dtype=tf.uint8)[tf.newaxis, ...],
-                             step=0)
+            tf.summary.image(
+                "model summary",
+                tf.constant(im_frame, dtype=tf.uint8)[tf.newaxis, ...],
+                step=0)
 
 
 def create_callbacks(
@@ -108,6 +115,20 @@ def create_datesets(
     ds_tr = df_to_dataset_fn(df=df_tr, **kwargs)
     ds_val = df_to_dataset_fn(df=df_va, **kwargs)
     ds_te = df_to_dataset_fn(df=df_te, **{**kwargs, 'shuffle_buffer_size': 0})
+
+    return ds_tr, ds_val, ds_te
+
+
+def create_datesets_again(
+        mm: MyModel,
+        df_tr: pd.DataFrame,
+        df_va: pd.DataFrame,
+        df_te: pd.DataFrame,
+        **kwargs
+):
+    ds_tr = mm.df_to_dataset(df=df_tr, **kwargs)
+    ds_val = mm.df_to_dataset(df=df_va, **kwargs)
+    ds_te = mm.df_to_dataset(df=df_te, **{**kwargs, 'shuffle_buffer_size': 0})
 
     return ds_tr, ds_val, ds_te
 
@@ -175,6 +196,56 @@ def train_evaluate(
         evaluate_percentile_model(model, ds_te.take(1), log_dir, quantiles, qtile_range)
 
 
+def train_evaluate_again(
+        mm: MyModelClusteredLocation,
+        ds_tr,
+        ds_va,
+        ds_te,
+        log_dir: str,
+        save_dir: str = None,
+        epochs: int = 100,
+        early_stopping_patience: int = 250,
+        reduce_lr_patience: int = 100,
+        histogram_freq: int = 0,
+        profile_batch: tuple = (10, 15),
+        verbose: int = 0,
+        evaluate: bool = True
+):
+    # Train and evaluate a model
+    callbacks = create_callbacks(
+        log_dir=log_dir,
+        save_dir=save_dir,
+        histogram_freq=histogram_freq,
+        reduce_lr_patience=reduce_lr_patience,
+        profile_batch=profile_batch,
+        verbose=verbose,
+        early_stopping_patience=early_stopping_patience)
+
+    store_model_architecture(mm.model, log_dir)
+
+    mm.model.fit(
+        ds_tr,
+        validation_data=ds_va,
+        epochs=epochs,
+        callbacks=callbacks,
+        verbose=verbose)
+
+    # Load the best model weights and save the full model
+    if save_dir:
+        checkpoint_path = os.path.join(save_dir, 'checkpoints', 'cp.ckpt')
+        mm.model.load_weights(checkpoint_path)
+        mm.save(save_dir=save_dir)
+
+    mm.model.evaluate(ds_tr)
+    mm.model.evaluate(ds_va)
+    mm.model.evaluate(ds_te)
+
+    # Evaluate model
+    if evaluate:
+        mm.evaluate_model(ds_te.take(1), log_dir=log_dir)
+
+
+# TODO: deprecated
 def run(
         data_path: str,
         main_dir: str,
@@ -253,6 +324,61 @@ def run(
         histogram_freq=0,  # noqa
         profile_batch=0,  # noqa
         verbose=1)
+
+
+def run_again(
+        data_path: str,
+        main_dir: str,
+        ex: int,
+        use_percentile_model: bool = False,
+        epochs: int = 1_000
+):
+    batch_size = 2 ** 20  # 1_048_576
+    prefetch_size = tf.data.AUTOTUNE
+
+    log_dir = os.path.join(main_dir, 'tfboard', f'ex_{ex:02d}')
+    save_dir = os.path.join(main_dir, 'saved_models', f'ex_{ex:02d}')
+
+    if use_percentile_model:
+        mm = MyModelClusteredLocationIQF(
+            layer_sizes=(32, (32, 32), 8),
+            l2=.002,
+            batch_normalization=True)
+    else:
+        mm = MyModelClusteredLocationParametrizedPDF(
+            layer_sizes=(32, (32, 32), 8),
+            l2=.002,
+            batch_normalization=True)
+
+    df = pd.read_parquet(data_path)
+    idx_tr, idx_val, idx_te = train_val_test_split(df.index)
+
+    dataset_args = dict(
+        shuffle_buffer_size=0,  # noqa
+        batch_size=batch_size,
+        prefetch_size=prefetch_size,
+        cache=True)
+
+    ds_tr, ds_val, ds_te = create_datesets_again(
+        mm,
+        df.loc[idx_tr],
+        df.loc[idx_val],
+        df.loc[idx_te],
+        **dataset_args)
+
+    train_evaluate_again(
+        mm,
+        ds_tr,
+        ds_val,
+        ds_te,
+        log_dir=log_dir,
+        save_dir=save_dir,
+        epochs=epochs,
+        early_stopping_patience=250,  # noqa
+        reduce_lr_patience=100,  # noqa
+        histogram_freq=0,  # noqa
+        profile_batch=(10, 15),  # noqa
+        verbose=0)  # noqa
 
 
 if __name__ == '__main__':

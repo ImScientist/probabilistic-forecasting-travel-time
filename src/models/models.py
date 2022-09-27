@@ -8,6 +8,9 @@ import tensorflow_probability as tfp
 
 from src.models import layer_generator
 from src.models import losses
+from src.evaluation import (
+    evaluate_parametrized_pdf_model,
+    evaluate_percentile_model)
 
 tfkl = tf.keras.layers
 tfd = tfp.distributions
@@ -170,3 +173,109 @@ def load_model_iqf(load_dir: str, load_area_cluster: bool = True):
         custom_objects={'loss_fn': loss_fn})
 
     return model, cluster, quantiles
+
+
+class ModelGenerator01:
+    def __init__(
+            self,
+            num_feats: list[str],
+            cat_int_feats: list[str],
+            cat_str_feats: list[str],
+            layer_sizes: tuple = None,
+            l2: float = .001,
+            dropout: float = 0,
+            dropout_min_layer_size: int = 12,
+            batch_normalization: bool = False,
+            distribution: str = 'lognormal',
+            ds=None,
+            load_dir: str = None,
+            **kwargs
+    ):
+        assert ds is not None or load_dir is not None
+
+        # feature preprocessing params
+        # self.num_feats = [
+        #     'pickup_longitude', 'pickup_latitude', 'dropoff_longitude',
+        #     'dropoff_latitude', 'trip_distance', 'time']
+        #
+        # self.cat_int_feats = [
+        #     'weekday', 'month', 'pickup_area',
+        #     'dropoff_area', 'passenger_count']
+        #
+        # self.cat_str_feats = ['vendor_id']
+
+        self.num_feats = num_feats
+        self.cat_int_feats = cat_int_feats
+        self.cat_str_feats = cat_str_feats
+
+        # nn parameters
+        self.layer_sizes = layer_sizes or (32, 32, 8)
+        self.l2 = l2
+        self.dropout = dropout
+        self.dropout_min_layer_size = dropout_min_layer_size
+        self.batch_normalization = batch_normalization
+        self.distribution = distribution
+
+        self.model = None
+        self.custom_objects = {
+            'neg_log_likelihood': losses.neg_log_likelihood}
+        self.evaluate_model_fn=
+
+        if load_dir is not None:
+            self._load(load_dir)
+        else:
+            self._init_model(ds)
+
+    def _init_model(self, ds):
+        """ Initialize a model """
+
+        self.model = get_model_parametrized_dist(
+            ds=ds,
+            num_feats=self.num_feats,
+            cat_int_feats=self.cat_int_feats,
+            cat_str_feats=self.cat_str_feats,
+            layer_sizes=self.layer_sizes,
+            l2=self.l2,
+            dropout=self.dropout,
+            dropout_min_layer_size=self.dropout_min_layer_size,
+            batch_normalization=self.batch_normalization,
+            distribution=self.distribution)
+
+    def _load(self, load_dir: str):
+        """ Load the model and all relevant class attributes """
+
+        model_dir = os.path.join(load_dir, 'model')
+        attributes_path = os.path.join(load_dir, 'model_attributes.json')
+
+        self.model = tf.keras.models.load_model(
+            model_dir,
+            custom_objects=self.custom_objects)
+
+        # Load other attributes
+        with open(attributes_path, 'r') as f:
+            attributes = json.load(f)
+
+        for key, value in attributes.items():
+            setattr(self, key, value)
+
+    def save(self, save_dir: str):
+        """ Save the model and other class attributes """
+
+        model_dir = os.path.join(save_dir, 'model')
+        attributes_path = os.path.join(save_dir, 'model_attributes.json')
+
+        attributes = {k: getattr(self, k) for k in vars(self).keys()
+                      if k not in ('model', 'custom_objects',)}
+
+        self.model.save(model_dir, save_traces=False)
+
+        with open(attributes_path, 'w') as f:
+            json.dump(attributes, f, indent='\t')
+
+    def evaluate_model(self, ds, log_dir: str):
+        """ Evaluate model """
+
+        evaluate_parametrized_pdf_model(
+            model=self.model,
+            ds=ds,
+            log_dir=log_dir)

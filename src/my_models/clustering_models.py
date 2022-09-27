@@ -1,40 +1,16 @@
-import os
 import json
+import os
+
 import joblib
 import pandas as pd
 import tensorflow as tf
-from abc import abstractmethod
 from sklearn.cluster import KMeans
 
+from src.dataset import df_to_dataset_01
+from src.evaluation import evaluate_parametrized_pdf_model, evaluate_percentile_model
 from src.models import losses
-from src.dataset import df_to_dataset_01, df_to_dataset_02
-from src.evaluation import evaluate_percentile_model, evaluate_parametrized_pdf_model
-from src.models.models import get_model_iqf, get_model_parametrized_dist
-
-
-# TODO: evaluate method
-class MyModel:
-    """ Abstract class that holds all model relevant settings """
-
-    @abstractmethod
-    def df_to_dataset(
-            self,
-            df: pd.DataFrame,
-            shuffle_buffer_size: int = 0,
-            batch_size: int = None,
-            prefetch_size: int = None,
-            cache: bool = False,
-            **kwargs
-    ):
-        """ Create a dataset from a dataframe """
-
-    @abstractmethod
-    def init_model(self, ds, **kwargs):
-        """ Initialize a model """
-
-    @abstractmethod
-    def evaluate_model(self, ds, log_dir: str):
-        """ Evaluate model """
+from src.models.models import get_model_parametrized_dist, get_model_iqf
+from src.my_models.base import MyModel
 
 
 class MyModelClusteredLocation(MyModel):
@@ -51,6 +27,9 @@ class MyModelClusteredLocation(MyModel):
             dropout_min_layer_size: int = 12,
             batch_normalization: bool = False
     ):
+
+        super(MyModelClusteredLocation, self).__init__()
+
         # feature preprocessing params
         self.num_feats = [
             'pickup_longitude', 'pickup_latitude', 'dropoff_longitude',
@@ -196,9 +175,11 @@ class MyModelClusteredLocationIQF(MyModelClusteredLocation):
             dropout: float = 0,
             dropout_min_layer_size: int = 12,
             batch_normalization: bool = False,
-            quantiles: tuple = (.1, .3, .5, .7, .9)
+            quantiles: tuple = (.1, .3, .5, .7, .9),
+            quantile_range: tuple = (.3, .7)
     ):
         self.quantiles = quantiles
+        self.quantile_range = quantile_range
 
         super(MyModelClusteredLocationIQF, self).__init__(
             area_clusters=area_clusters,
@@ -253,4 +234,4 @@ class MyModelClusteredLocationIQF(MyModelClusteredLocation):
             ds=ds,
             log_dir=log_dir,
             quantiles=self.quantiles,
-            qtile_range=(.3, .7,))
+            qtile_range=self.quantile_range)

@@ -1,3 +1,5 @@
+import os
+import joblib
 import logging
 
 import numpy as np
@@ -196,3 +198,66 @@ def df_to_dataset_02(
         ds = ds.cache()
 
     return ds
+
+
+class DatasetGenerator01:
+
+    def __init__(
+            self, load_dir: str = None, area_clusters: int = 20, **kwargs
+    ):
+        self.cluster = KMeans(n_clusters=area_clusters)
+
+        if load_dir is not None:
+            self._load(load_dir)
+
+    def df_to_dataset(
+            self,
+            df: pd.DataFrame,
+            shuffle_buffer_size: int = 0,
+            batch_size: int = None,
+            prefetch_size: int = None,
+            cache: bool = False
+    ):
+        ds = df_to_dataset_01(
+            df=df,
+            cluster=self.cluster,
+            shuffle_buffer_size=shuffle_buffer_size,
+            batch_size=batch_size,
+            prefetch_size=prefetch_size,
+            cache=cache)
+
+        return ds
+
+    def save(self, save_dir: str):
+        cluster_path = os.path.join(save_dir, 'cluster.joblib')
+        joblib.dump(self.cluster, cluster_path)
+
+    def _load(self, load_dir: str):
+        cluster_path = os.path.join(load_dir, 'cluster.joblib')
+        self.cluster = joblib.load(cluster_path)
+
+
+class DatasetGenerator02:
+
+    def __init__(self, **kwargs):
+        return
+
+    def df_to_dataset(
+            self,
+            df: pd.DataFrame,
+            shuffle_buffer_size: int = 0,
+            batch_size: int = None,
+            prefetch_size: int = None,
+            cache: bool = False
+    ):
+        ds = df_to_dataset_02(
+            df=df,
+            shuffle_buffer_size=shuffle_buffer_size,
+            batch_size=batch_size,
+            prefetch_size=prefetch_size,
+            cache=cache)
+
+        return ds
+
+    def save(self, save_dir: str):
+        return
