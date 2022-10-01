@@ -1,6 +1,5 @@
-import json
 import os
-
+import json
 import joblib
 import pandas as pd
 import tensorflow as tf
@@ -27,7 +26,6 @@ class MyModelClusteredLocation(MyModel):
             dropout_min_layer_size: int = 12,
             batch_normalization: bool = False
     ):
-
         super(MyModelClusteredLocation, self).__init__()
 
         # feature preprocessing params

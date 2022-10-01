@@ -1,3 +1,7 @@
+"""
+    TODO: remove
+"""
+
 import os
 import json
 import joblib
@@ -45,7 +49,7 @@ def train_val_test_split(df_index: pd.Index):
     return idx_tr, idx_val, idx_te
 
 
-def store_model_architecture(model, log_dir: str):
+def log_model_architecture(model, log_dir: str):
     """ Store a non-interactive readable model architecture """
 
     with tempfile.NamedTemporaryFile('w', suffix=".png") as temp:
@@ -162,7 +166,7 @@ def train_evaluate(
         verbose=verbose,
         early_stopping_patience=early_stopping_patience)
 
-    store_model_architecture(model, log_dir)
+    log_model_architecture(model, log_dir)
 
     _ = model.fit(
         ds_tr,
@@ -221,7 +225,7 @@ def train_evaluate_again(
         verbose=verbose,
         early_stopping_patience=early_stopping_patience)
 
-    store_model_architecture(mm.model, log_dir)
+    log_model_architecture(mm.model, log_dir)
 
     mm.model.fit(
         ds_tr,
