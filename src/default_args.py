@@ -25,8 +25,7 @@ model_args = dict(
         l2=.001,
         dropout=0,
         dropout_min_layer_size=12,
-        batch_normalization=True)
-)
+        batch_normalization=True))
 
 ds_args = dict(
     shuffle_buffer_size=0,

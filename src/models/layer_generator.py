@@ -129,22 +129,23 @@ def model_input_layer(
 
 def composite_layer(
         x,
-        layer_sizes: tuple | int,
+        layer_sizes: tuple | list | int,
         l2: float = .001,
         dropout: float = 0,
         dropout_min_layer_size: int = 12,
         batch_normalization: bool = False,
         name: str = None
 ):
+    print(f'layer sizes (no shortcut): {layer_sizes}')
+
     layer_args = dict(
         l2=l2,
         dropout=dropout,
         dropout_min_layer_size=dropout_min_layer_size,
         batch_normalization=batch_normalization,
-        name=name
-    )
+        name=name)
 
-    if type(layer_sizes) == tuple:
+    if type(layer_sizes) in (tuple, list):
         x = composite_layer_with_shortcut(x, layer_sizes=layer_sizes, **layer_args)
     else:
         x = composite_layer_without_shortcut(x, layer_size=layer_sizes, **layer_args)
@@ -154,17 +155,16 @@ def composite_layer(
 
 def composite_layer_with_shortcut(
         x,
-        layer_sizes: tuple = (32, 32),
+        layer_sizes: tuple | list = (32, 32),
         l2: float = .001,
         dropout: float = 0,
         dropout_min_layer_size: int = 12,
         batch_normalization: bool = False,
         name: str = None
 ):
-    """ A residual block
+    """ A residual block """
 
-    TODO: could we initialize the residual layers weights to 0?
-    """
+    print(f'layer sizes (with shortcut): {layer_sizes}')
 
     shortcut = x
 

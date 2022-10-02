@@ -70,11 +70,13 @@ if __name__ == "__main__":
     export TF_GPU_ALLOCATOR=cuda_malloc_async
     export TF_GPU_THREAD_MODE=gpu_private
 
+    # --model_args='{"l2": 0.001, "batch_normalization": true, "embedding_dim": 20, "layer_sizes": [32, [32, 32], 8]}' \
+
     PYTHONPATH=$(pwd) python src/main.py train \
         --dataset_generator=DSGMaskedLocation \
         --model_wrapper=ModelPDF \
-        --model_args='{"l2": 0.001, "batch_normalization": false}' \
-        --callbacks_args='{"period": 100, "profile_batch": 0}' \
+        --model_args='{"embedding_dim": 20, "layer_sizes": [32, [32, 32], [32, 32], 16, 8]}' \
+        --callbacks_args='{"period": 10, "profile_batch": 0}' \
         --training_args='{"epochs": 2500}'
     """
 
