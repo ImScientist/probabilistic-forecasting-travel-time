@@ -10,5 +10,6 @@ We will use a neural network to predict the travelling time distribution between
 - adding an extra layer with monotonically increasing outputs that represent a fixed set of the distribution-quantiles.
   Optimizing the model against the observed data is equivalent to minimizing the average of the pinball losses for every
   quantile.
+  ![Architecture](figs/nn_iqf.png)
 
 We apply both models to the NYC taxi trip data that can be found as a [BigQuery public dataset](https://cloud.google.com/datasets) hosted by Google. Recently, the exact pickup/drop-off locations were replaced location-ids. The model supports both options depending on what data do you have.
