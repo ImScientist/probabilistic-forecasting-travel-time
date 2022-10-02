@@ -42,33 +42,49 @@ def get_category_encoding_layer(name, ds, dtype, max_tokens=None):
     return lambda x: encoder(index(x))
 
 
+def get_embedding_layer(name, ds, dtype, max_tokens=None, output_dim: int = 20):
+    """ Create and adapt a lookup and embedding layer """
+
+    # Create a layer that turns strings/integer values into integer indices.
+    if dtype == 'string':
+        index = tfkl.StringLookup(max_tokens=max_tokens)
+    else:
+        index = tfkl.IntegerLookup(max_tokens=max_tokens)
+
+    feature_ds = ds.map(lambda x, y: x[name])
+
+    index.adapt(feature_ds)
+
+    embedding = tf.keras.layers.Embedding(
+        index.vocabulary_size(), output_dim=output_dim, input_length=1)
+
+    flatten = tfkl.Flatten()
+
+    return lambda x: flatten(embedding(index(x)))
+
+
 def model_input_layer(
         ds,
         num_feats: list[str],
         cat_int_feats: list[str],
-        cat_str_feats: list[str]
+        cat_str_feats: list[str],
+        emb_int_feats: list[str],
+        emb_str_feats: list[str],
+        embedding_dim: int
 ):
     """ Input layer from dataset """
 
-    # num_feats = ['pickup_longitude', 'pickup_latitude', 'dropoff_longitude',
-    #              'dropoff_latitude', 'trip_distance', 'time']
-    #
-    # cat_int_feats = ['weekday', 'month', 'pickup_area',
-    #                  'dropoff_area', 'passenger_count']
-    #
-    # cat_str_feats = ['vendor_id']
-
-    all_inputs = []
-    encoded_features = []
+    inputs = []
+    preprocessed_inputs = []
 
     for feat in num_feats:
         normalization_layer = get_normalization_layer(feat, ds)
 
         numeric_col = tf.keras.Input(shape=(1,), name=feat, dtype='float32')
-        encoded_numeric_col = normalization_layer(numeric_col)
+        normalized_numeric_col = normalization_layer(numeric_col)
 
-        all_inputs.append(numeric_col)
-        encoded_features.append(encoded_numeric_col)
+        inputs.append(numeric_col)
+        preprocessed_inputs.append(normalized_numeric_col)
 
     for feat in cat_int_feats:
         encoding_layer = get_category_encoding_layer(feat, ds, dtype='int32')
@@ -76,8 +92,8 @@ def model_input_layer(
         cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='int32')
         encoded_cat_col = encoding_layer(cat_col)
 
-        all_inputs.append(cat_col)
-        encoded_features.append(encoded_cat_col)
+        inputs.append(cat_col)
+        preprocessed_inputs.append(encoded_cat_col)
 
     for feat in cat_str_feats:
         encoding_layer = get_category_encoding_layer(feat, ds, dtype='string')
@@ -85,10 +101,30 @@ def model_input_layer(
         cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='string')
         encoded_cat_col = encoding_layer(cat_col)
 
-        all_inputs.append(cat_col)
-        encoded_features.append(encoded_cat_col)
+        inputs.append(cat_col)
+        preprocessed_inputs.append(encoded_cat_col)
 
-    return all_inputs, encoded_features
+    for feat in emb_int_feats:
+        embedding_layer = get_embedding_layer(
+            feat, ds, dtype='int32', output_dim=embedding_dim)
+
+        cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='int32')
+        embedded_cat_col = embedding_layer(cat_col)
+
+        inputs.append(cat_col)
+        preprocessed_inputs.append(embedded_cat_col)
+
+    for feat in emb_str_feats:
+        embedding_layer = get_embedding_layer(
+            feat, ds, dtype='string', output_dim=embedding_dim)
+
+        cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='string')
+        embedded_cat_col = embedding_layer(cat_col)
+
+        inputs.append(cat_col)
+        preprocessed_inputs.append(embedded_cat_col)
+
+    return inputs, preprocessed_inputs
 
 
 def composite_layer(

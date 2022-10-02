@@ -1,5 +1,6 @@
 import io
 import os
+import json
 import logging
 import numpy as np
 import pandas as pd
@@ -19,6 +20,11 @@ tfb = tfp.bijectors
 dtype = tf.float32
 
 logger = logging.getLogger(__name__)
+
+
+def pretty_json(hp):
+    json_hp = json.dumps(hp, indent=2)
+    return "".join("\t" + line for line in json_hp.splitlines(True))
 
 
 def lognormal_pdf(loc, scale):
@@ -216,6 +222,7 @@ def evaluate_percentile_model(
         model,
         ds,
         log_dir: str,
+        log_data: dict,
         quantiles: tuple,
         qtile_range: tuple[float, float]
 ):
@@ -244,8 +251,14 @@ def evaluate_percentile_model(
         img = plot_to_image(fig)
         tf.summary.image(name, img, step=0)
 
+    with file_writer.as_default():
+        log_data = pretty_json(log_data)
+        tf.summary.text("experiment_args", log_data, step=0)
 
-def evaluate_parametrized_pdf_model(model, ds, log_dir: str, clusters: int = 20):
+
+def evaluate_parametrized_pdf_model(
+        model, ds, log_dir: str, log_data: dict, clusters: int = 20
+):
     """ Compare predicted distributions against observations """
 
     save_dir = os.path.join(log_dir, 'train')
@@ -299,3 +312,7 @@ def evaluate_parametrized_pdf_model(model, ds, log_dir: str, clusters: int = 20)
         name = 'predicted pct vs frac of observations with lower predicted pct'
         img = plot_to_image(fig)
         tf.summary.image(name, img, step=0)
+
+    with file_writer.as_default():
+        log_data = pretty_json(log_data)
+        tf.summary.text("experiment_args", log_data, step=0)

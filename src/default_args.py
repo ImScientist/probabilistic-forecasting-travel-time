@@ -3,9 +3,11 @@ model_args = dict(
     DSGRawLocation=dict(
         num_feats=['pickup_longitude', 'pickup_latitude', 'dropoff_longitude',
                    'dropoff_latitude', 'trip_distance', 'time'],
-        cat_int_feats=['weekday', 'month', 'pickup_area',
-                       'dropoff_area', 'passenger_count'],
+        cat_int_feats=['weekday', 'month', 'pickup_area', 'dropoff_area', 'passenger_count'],
         cat_str_feats=['vendor_id'],
+        emb_int_feats=[],
+        emb_str_feats=[],
+        embedding_dim=10,
         layer_sizes=(32, (32, 32), 8),
         l2=.001,
         dropout=0,
@@ -14,9 +16,11 @@ model_args = dict(
     # Default model arguments applied to data with anonymized pickup and dropoff locations
     DSGMaskedLocation=dict(
         num_feats=['trip_distance', 'time'],
-        cat_int_feats=['pickup_location_id', 'dropoff_location_id',
-                       'passenger_count', 'vendor_id', 'weekday', 'month'],
+        cat_int_feats=['weekday', 'month', 'passenger_count', 'vendor_id'],
         cat_str_feats=[],
+        emb_int_feats=['pickup_location_id', 'dropoff_location_id'],
+        emb_str_feats=[],
+        embedding_dim=10,
         layer_sizes=(32, (32, 32), 8),
         l2=.001,
         dropout=0,

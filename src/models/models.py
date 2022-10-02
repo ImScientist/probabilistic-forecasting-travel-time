@@ -42,6 +42,9 @@ class ModelWrapper:
             num_feats: list[str],
             cat_int_feats: list[str],
             cat_str_feats: list[str],
+            emb_int_feats: list[str],
+            emb_str_feats: list[str],
+            embedding_dim: int = 10,
             layer_sizes: tuple = None,
             l2: float = .001,
             dropout: float = 0,
@@ -53,6 +56,9 @@ class ModelWrapper:
         self.num_feats = num_feats
         self.cat_int_feats = cat_int_feats
         self.cat_str_feats = cat_str_feats
+        self.emb_int_feats = emb_int_feats
+        self.emb_str_feats = emb_str_feats
+        self.embedding_dim = embedding_dim
 
         # nn parameters
         self.layer_sizes = layer_sizes or (32, 32, 8)
@@ -100,7 +106,7 @@ class ModelWrapper:
             json.dump(attributes, f, indent='\t')
 
     @abstractmethod
-    def evaluate_model(self, ds, log_dir: str):
+    def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
         """ Evaluate model """
 
 
@@ -110,6 +116,9 @@ class ModelPDF(ModelWrapper):
             num_feats: list[str],
             cat_int_feats: list[str],
             cat_str_feats: list[str],
+            emb_int_feats: list[str],
+            emb_str_feats: list[str],
+            embedding_dim: int = 10,
             layer_sizes: tuple = None,
             l2: float = .001,
             dropout: float = 0,
@@ -125,6 +134,9 @@ class ModelPDF(ModelWrapper):
             num_feats=num_feats,
             cat_int_feats=cat_int_feats,
             cat_str_feats=cat_str_feats,
+            emb_int_feats=emb_int_feats,
+            emb_str_feats=emb_str_feats,
+            embedding_dim=embedding_dim,
             layer_sizes=layer_sizes,
             l2=l2,
             dropout=dropout,
@@ -152,7 +164,10 @@ class ModelPDF(ModelWrapper):
             ds=ds,
             num_feats=self.num_feats,
             cat_int_feats=self.cat_int_feats,
-            cat_str_feats=self.cat_str_feats)
+            cat_str_feats=self.cat_str_feats,
+            emb_int_feats=self.emb_int_feats,
+            emb_str_feats=self.emb_str_feats,
+            embedding_dim=self.embedding_dim)
 
         x = tf.keras.layers.concatenate(encoded_features)
 
@@ -184,10 +199,11 @@ class ModelPDF(ModelWrapper):
             optimizer=tf.optimizers.Adam(learning_rate=0.01),
             loss=neg_log_likelihood)
 
-    def evaluate_model(self, ds, log_dir: str):
+    def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
         """ Evaluate model """
 
-        evaluate_parametrized_pdf_model(self.model, ds=ds, log_dir=log_dir)
+        evaluate_parametrized_pdf_model(
+            self.model, ds=ds, log_dir=log_dir, log_data=log_data)
 
 
 class ModelIQF(ModelWrapper):
@@ -196,6 +212,9 @@ class ModelIQF(ModelWrapper):
             num_feats: list[str],
             cat_int_feats: list[str],
             cat_str_feats: list[str],
+            emb_int_feats: list[str],
+            emb_str_feats: list[str],
+            embedding_dim: int = 10,
             layer_sizes: tuple = None,
             l2: float = .001,
             dropout: float = 0,
@@ -211,6 +230,9 @@ class ModelIQF(ModelWrapper):
             num_feats=num_feats,
             cat_int_feats=cat_int_feats,
             cat_str_feats=cat_str_feats,
+            emb_int_feats=emb_int_feats,
+            emb_str_feats=emb_str_feats,
+            embedding_dim=embedding_dim,
             layer_sizes=layer_sizes,
             l2=l2,
             dropout=dropout,
@@ -240,7 +262,10 @@ class ModelIQF(ModelWrapper):
             ds,
             num_feats=self.num_feats,
             cat_int_feats=self.cat_int_feats,
-            cat_str_feats=self.cat_str_feats)
+            cat_str_feats=self.cat_str_feats,
+            emb_int_feats=self.emb_int_feats,
+            emb_str_feats=self.emb_str_feats,
+            embedding_dim=self.embedding_dim)
 
         x = tf.keras.layers.concatenate(encoded_features)
 
@@ -267,12 +292,13 @@ class ModelIQF(ModelWrapper):
             optimizer=tf.optimizers.Adam(learning_rate=0.01),
             loss=pinball_loss(quantiles=self.quantiles))
 
-    def evaluate_model(self, ds, log_dir: str):
+    def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
         """ Evaluate model """
 
         evaluate_percentile_model(
             model=self.model,
             ds=ds,
             log_dir=log_dir,
+            log_data=log_data,
             quantiles=self.quantiles,
             qtile_range=self.quantile_range)

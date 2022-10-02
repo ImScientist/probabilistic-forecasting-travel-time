@@ -113,7 +113,9 @@ def get_best_checkpoint(
 
     checkpoint_name = best_checkpoint.group(0).removesuffix('.index')
 
-    return checkpoint_name
+    checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
+
+    return checkpoint_path
 
 
 def get_experiment_id(logs_dir: str):
@@ -127,6 +129,8 @@ def get_experiment_id(logs_dir: str):
 
     experiment_id = min(set(np.arange(1_000)) - experiments)
 
+    logger.info(f'\n\nExperiment id: {experiment_id}\n\n')
+
     return experiment_id
 
 
@@ -134,7 +138,7 @@ def train(
         dataset_generator: str,
         model_wrapper: str,
         ds_args: dict,
-        mdl_args: dict,
+        model_args: dict,
         callbacks_args: dict,
         training_args: dict
 ):
@@ -149,6 +153,18 @@ def train(
     ├── validation/
     └── plugins/
     """
+
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+        # Restrict TensorFlow to only allocate 20GB of memory on the first GPU
+        try:
+            tf.config.set_logical_device_configuration(
+                gpus[0],
+                [tf.config.LogicalDeviceConfiguration(memory_limit=20 * 1024)])
+            logical_gpus = tf.config.list_logical_devices('GPU')
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        except RuntimeError as e:
+            print(e)
 
     experiment_id = get_experiment_id(settings.TFBOARD_DIR)
 
@@ -168,7 +184,7 @@ def train(
                                                     'shuffle_buffer_size': 0})
 
     # Initialize the model generator
-    mdl = getattr(model, model_wrapper)(ds=ds_tr, **mdl_args)
+    mdl = getattr(model, model_wrapper)(ds=ds_tr, **model_args)
 
     # Train and evaluate a model
     callbacks = create_callbacks(log_dir, save_dir, **callbacks_args)
@@ -188,4 +204,12 @@ def train(
     mdl.model.evaluate(ds_va)
     mdl.model.evaluate(ds_te)
 
-    mdl.evaluate_model(ds=ds_te, log_dir=log_dir)
+    all_args = dict(
+        dataset_generator=dataset_generator,
+        model_wrapper=model_wrapper,
+        model_args=model_args,
+        dataset_args=ds_args,
+        callbacks_args=callbacks_args,
+        training_args=training_args)
+
+    mdl.evaluate_model(ds=ds_te, log_dir=log_dir, log_data=all_args)
