@@ -4,4 +4,4 @@ TFBOARD_DIR = "/home/ai/projects/cars_ny/tfboard"
 ARTIFACTS_DIR = "/home/ai/projects/cars_ny/saved_models"
 
 # not used yet....
-RANDOM_VAR = 44
+RANDOM_VAR = 46

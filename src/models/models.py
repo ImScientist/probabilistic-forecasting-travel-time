@@ -220,8 +220,8 @@ class ModelIQF(ModelWrapper):
             dropout: float = 0,
             dropout_min_layer_size: int = 12,
             batch_normalization: bool = False,
-            quantiles: tuple = (.1, .3, .5, .7, .9),
-            quantile_range: tuple = (.3, .7),
+            quantiles: tuple = (.05, .15, .3, .5, .7, .85, .95),
+            quantile_range: tuple = (.15, .85),
             ds=None,
             load_dir: str = None,
             **kwargs
@@ -286,9 +286,8 @@ class ModelIQF(ModelWrapper):
         # monotonically increasing outputs
         output = tfkl.Lambda(lambda y: tf.cumsum(y, axis=-1))(x)
 
-        model = tf.keras.Model(all_inputs, output)
-
-        model.compile(
+        self.model = tf.keras.Model(all_inputs, output)
+        self.model.compile(
             optimizer=tf.optimizers.Adam(learning_rate=0.01),
             loss=pinball_loss(quantiles=self.quantiles))
 

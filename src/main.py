@@ -4,7 +4,7 @@ import logging
 
 import src.default_args as default_args
 import src.settings as settings
-from src.data import get_data_bq_all
+from src.data_collection import get_data_bq_all
 from src.train import train as train_fn
 
 logging.basicConfig()
@@ -71,13 +71,14 @@ if __name__ == "__main__":
     export TF_GPU_THREAD_MODE=gpu_private
 
     # --model_args='{"l2": 0.001, "batch_normalization": true, "embedding_dim": 20, "layer_sizes": [32, [32, 32], 8]}' \
+    # --model_args='{"embedding_dim": 20, "layer_sizes": [64, [64, 64], [64, 64], 32, 8]}' \
 
     PYTHONPATH=$(pwd) python src/main.py train \
-        --dataset_generator=DSGMaskedLocation \
+        --dataset_generator=DSGRawLocation \
         --model_wrapper=ModelPDF \
-        --model_args='{"embedding_dim": 20, "layer_sizes": [32, [32, 32], [32, 32], 16, 8]}' \
-        --callbacks_args='{"period": 10, "profile_batch": 0}' \
-        --training_args='{"epochs": 2500}'
+        --model_args='{"l2": 0.0001, "embedding_dim": 16, "layer_sizes": [32, 64, 32, 8]}' \
+        --callbacks_args='{"period": 20, "profile_batch": 0}' \
+        --training_args='{"epochs": 100}'
     """
 
     cli()

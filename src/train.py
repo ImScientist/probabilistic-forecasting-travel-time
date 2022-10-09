@@ -152,6 +152,10 @@ def train(
     ├── train/
     ├── validation/
     └── plugins/
+
+    DATA_DIR
+    ├── location_masked/
+    └── location_raw/
     """
 
     gpus = tf.config.list_physical_devices('GPU')
@@ -168,7 +172,10 @@ def train(
 
     experiment_id = get_experiment_id(settings.TFBOARD_DIR)
 
-    data_path = os.path.join(settings.DATA_DIR, 'data_2016_01.parquet')
+    if dataset_generator == 'DSGMaskedLocation':
+        data_path = os.path.join(settings.DATA_DIR, 'location_masked', 'data_2016_01.parquet')
+    else:
+        data_path = os.path.join(settings.DATA_DIR, 'location_raw', 'data_2016_05.parquet')
     log_dir = os.path.join(settings.TFBOARD_DIR, f'ex_{experiment_id:03d}')
     save_dir = os.path.join(settings.ARTIFACTS_DIR, f'ex_{experiment_id:03d}')
 

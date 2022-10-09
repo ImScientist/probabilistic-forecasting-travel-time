@@ -136,8 +136,6 @@ def composite_layer(
         batch_normalization: bool = False,
         name: str = None
 ):
-    print(f'layer sizes (no shortcut): {layer_sizes}')
-
     layer_args = dict(
         l2=l2,
         dropout=dropout,
@@ -163,8 +161,6 @@ def composite_layer_with_shortcut(
         name: str = None
 ):
     """ A residual block """
-
-    print(f'layer sizes (with shortcut): {layer_sizes}')
 
     shortcut = x
 

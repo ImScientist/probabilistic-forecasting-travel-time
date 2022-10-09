@@ -1,3 +1,6 @@
+.DS_Store
+*junk.py
+
 notebooks/*
 
 # Byte-compiled / optimized / DLL files

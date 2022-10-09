@@ -4,13 +4,9 @@ import json
 import logging
 import numpy as np
 import pandas as pd
-import scipy.stats as sc
 import tensorflow as tf
 import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 
 tfkl = tf.keras.layers
 tfkc = tf.keras.callbacks
@@ -62,68 +58,6 @@ def plot_to_image(figure):
     image = tf.expand_dims(image, 0)
 
     return image
-
-
-def fig_clustered_predictions(
-        df: pd.DataFrame,
-        clusters: int = 20,
-        distribution_name: str = 'normal'
-):
-    """
-        Plot distributions of observations with the same
-        predicted distribution params p1, p2
-
-    Params
-    ------
-      df: table with the columns p1, p2, p_cluster
-    """
-
-    # cluster distributions based on the similarity of their trainable params
-    clustering_pipe = Pipeline([
-        ('scaling', StandardScaler()),
-        ('clustering', MiniBatchKMeans(n_clusters=clusters))])
-
-    df['p_cluster'] = clustering_pipe.fit_predict(df[['p1', 'p2']].values)
-
-    # relative number of elements per cluster
-    sizes = (df
-             .groupby(['p_cluster'])
-             .agg(n=('p1', 'count'))
-             .assign(n=lambda x: x / df.shape[0]))
-
-    rows = clusters // 2
-    cols = 2
-
-    fig = plt.figure(figsize=(10 * cols, 3 * rows))
-
-    for c in range(clusters):
-        ax = plt.subplot(rows, cols, c + 1)
-
-        frac = sizes.loc[c, 'n']
-
-        cond = lambda x: x['p_cluster'] == c
-
-        ax.hist(df.loc[cond, 'y'], bins=60, density=True,
-                label=f'param-cluster {c:02d}; samples fraction: {frac:.3f}')
-
-        xmin, xmax = plt.xlim()
-        x = np.linspace(xmin, xmax, 1_000)
-
-        p1_mean = df.loc[cond, 'p1'].mean()
-        p2_mean = df.loc[cond, 'p2'].mean()
-
-        if distribution_name == 'normal':
-            pdf = sc.norm(loc=p1_mean, scale=p2_mean).pdf
-        elif distribution_name == 'lognormal':
-            pdf = lognormal_pdf(loc=p1_mean, scale=p2_mean)
-        else:
-            pdf = sc.gamma(a=p1_mean, scale=1 / p2_mean).pdf
-
-        ax.plot(x, pdf(x), 'k-', lw=2, label='predicted pdf')
-
-        ax.legend()
-
-    return fig
 
 
 def fig_mean_to_std_distribution(df: pd.DataFrame):
@@ -264,7 +198,6 @@ def evaluate_parametrized_pdf_model(
     save_dir = os.path.join(log_dir, 'train')
     file_writer = tf.summary.create_file_writer(save_dir)
 
-    distribution_name = model.layers[-1].name
     distribution_fn = model.layers[-1].function
 
     model_deterministic = tf.keras.Model(
@@ -290,14 +223,6 @@ def evaluate_parametrized_pdf_model(
     """
         Figures
     """
-
-    fig = fig_clustered_predictions(
-        df=df, clusters=clusters, distribution_name=distribution_name)
-
-    with file_writer.as_default():
-        name = "predicted distributions"
-        img = plot_to_image(fig)
-        tf.summary.image(name, img, step=0)
 
     fig = fig_mean_to_std_distribution(df=df)
 
