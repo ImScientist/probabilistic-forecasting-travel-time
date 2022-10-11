@@ -74,11 +74,11 @@ if __name__ == "__main__":
     # --model_args='{"embedding_dim": 20, "layer_sizes": [64, [64, 64], [64, 64], 32, 8]}' \
 
     PYTHONPATH=$(pwd) python src/main.py train \
-        --dataset_generator=DSGRawLocation \
-        --model_wrapper=ModelPDF \
-        --model_args='{"l2": 0.0001, "embedding_dim": 16, "layer_sizes": [32, 64, 32, 8]}' \
-        --callbacks_args='{"period": 20, "profile_batch": 0}' \
-        --training_args='{"epochs": 100}'
+        --dataset_generator=DSGMaskedLocation \
+        --model_wrapper=ModelIQF \
+        --model_args='{"l2": 0.00001, "batch_normalization": false, "embedding_dim": 32, "layer_sizes": [128, 64, 32, 8]}' \
+        --callbacks_args='{"period": 100, "profile_batch": 0}' \
+        --training_args='{"epochs": 1500}'
     """
 
     cli()
