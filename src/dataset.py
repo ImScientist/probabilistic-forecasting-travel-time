@@ -24,21 +24,6 @@ dtype = tf.float32
 logger = logging.getLogger(__name__)
 
 
-# def get_dataset_partitions_pd(df, train_split=0.8, val_split=0.1, test_split=0.1):
-#     assert (train_split + test_split + val_split) == 1
-#
-#     # Only allows for equal validation and test splits
-#     assert val_split == test_split
-#
-#     # Specify seed to always have the same split distribution between runs
-#     df_sample = df.sample(frac=1, random_state=12)
-#     indices_or_sections = [int(train_split * len(df)), int((1 - val_split - test_split) * len(df))]
-#
-#     train_ds, val_ds, test_ds = np.split(df_sample, indices_or_sections)
-#
-#     return train_ds, val_ds, test_ds
-
-
 def fit_cluster(cluster: KMeans, df: pd.DataFrame, sample_size: int = 10_000):
     """ Fit a clustering module if not fitted """
 
@@ -58,22 +43,27 @@ def fit_cluster(cluster: KMeans, df: pd.DataFrame, sample_size: int = 10_000):
         logger.info("Clustering model already fitted")
 
 
-def get_pq_files_and_sizes(data_dir: str):
+def get_pq_files_and_sizes(data_dir: str, max_files: int = None):
     """ Get the full paths and sizes of all .parquet files in data_dir """
 
     pq_files = [x for x in os.listdir(data_dir) if x.endswith('.parquet')]
+    pq_files = sorted(pq_files)[:max_files]
+    pq_files = np.array(pq_files)
 
-    pq_sizes = {}
+    pq_sizes = []
     for pq_file in pq_files:
         path = os.path.join(data_dir, pq_file)
         size = sum(p.count_rows()
                    for p in ParquetDataset(path, use_legacy_dataset=False).fragments)
-        pq_sizes[path] = size
+        pq_sizes.append(size)
 
-    return pq_sizes
+    pq_sizes = np.array(pq_sizes)
+
+    return pq_files, pq_sizes
 
 
 # TODO: create an abstract method in the base class!!!!!!!!!!
+# TODO: remove
 def ds_from_files(
         data_dir: str,
         tr_va_te_fraq: tuple[float, float, float] = (.8, .1, .1),
@@ -104,7 +94,7 @@ def ds_from_files(
 
     assert tr_fraq + va_fraq + te_fraq == 1
 
-    pq_sizes = get_pq_files_and_sizes(data_dir)
+    pq_files_and_sizes = get_pq_files_and_sizes(data_dir)
 
     columns_schema = {
         'time': tf.TensorSpec(tf.TensorShape([]), tf.float32),
@@ -154,13 +144,15 @@ def ds_from_files(
 
         ds = (
             tf.data.Dataset
-            .from_tensor_slices(list(pq_sizes))
-            .interleave(lambda f: pq_dataset(path=f,
-                                             take_size=int(take_fraq * pq_sizes[f.decode()]),
-                                             skip_size=int(skip_fraq * pq_sizes[f.decode()])),
-                        num_parallel_calls=tf.data.AUTOTUNE,
-                        block_length=batch_size,  # interleave blocks of batch_size records from each file
-                        cycle_length=cycle_length)
+            .from_tensor_slices(pq_files_and_sizes)
+            .interleave(
+                lambda x: pq_dataset(
+                    path=x['path'],
+                    take_size=int(take_fraq * x['size']),
+                    skip_size=int(skip_fraq * x['size'])),
+                num_parallel_calls=tf.data.AUTOTUNE,
+                block_length=batch_size,  # interleave blocks of batch_size records from each file
+                cycle_length=cycle_length)
             .batch(batch_size)
             .map(lambda x: OrderedDict({k: tf.expand_dims(v, -1) for k, v in x.items()})))
 
@@ -200,6 +192,7 @@ class DatasetGenerator:
              .pipe(self.generate_features)
              .to_parquet(path_save))
 
+    # TODO: deprecate soon?
     def df_to_dataset(
             self,
             df: pd.DataFrame,
@@ -259,28 +252,91 @@ class DatasetGenerator:
     def pq_to_dataset(
             self,
             data_dir: str,
+            columns_schema: dict,
+            shuffle_buffer_size: int,
+            shuffle_seed: int,
             take_fraq: float,
             skip_fraq: float,
             batch_size: int,
-            cycle_length: int
+            cycle_length: int,
+            max_files: int = None
     ):
-        """ Make dataset """
+        """ Make dataset from a directory full with parquet files """
 
-        pq_sizes = get_pq_files_and_sizes(data_dir)
+        # Get key-value pairs with key = file path and value = # rows
+        files, sizes = get_pq_files_and_sizes(data_dir, max_files)
+
+        pq_files_sizes = {
+            'path': files,
+            'size': sizes,
+            'take_size': (sizes * take_fraq).astype('int32'),
+            'skip_size': (sizes * skip_fraq).astype('int32')}
 
         ds = (
             tf.data.Dataset
-            .from_tensor_slices(list(pq_sizes))
-            .interleave(lambda f: self._raw_pq_to_dataset(path=f,
-                                                          take_size=int(take_fraq * pq_sizes[f.decode()]),
-                                                          skip_size=int(skip_fraq * pq_sizes[f.decode()])),
-                        num_parallel_calls=tf.data.AUTOTUNE,
-                        block_length=batch_size,  # interleave blocks of batch_size records from each file
-                        cycle_length=cycle_length)
+            .from_tensor_slices(pq_files_sizes)
+            .interleave(
+                lambda x: self._raw_pq_to_dataset(
+                    path=x['path'],
+                    columns_schema=columns_schema,
+                    shuffle_buffer_size=shuffle_buffer_size,
+                    shuffle_seed=shuffle_seed,
+                    take_size=x['take_size'],
+                    skip_size=x['skip_size']),
+                num_parallel_calls=tf.data.AUTOTUNE,
+                block_length=batch_size,  # interleave blocks of batch_size records from each file
+                cycle_length=cycle_length)
             .batch(batch_size)
-            .map(lambda x: OrderedDict({k: tf.expand_dims(v, -1) for k, v in x.items()})))
+            .map(lambda x: OrderedDict({k: tf.expand_dims(v, -1)
+                                        for k, v in x.items()})))
 
         return ds
+
+    def tr_va_te_datasets(
+            self,
+            data_dir: str,
+            max_files: int = None,
+            tr_va_te_fraq: tuple[float, float, float] = (.8, .1, .1),
+            batch_size: int = 2 ** 20,
+            shuffle_buffer_size: int = 2 ** 20,
+            shuffle_seed: int = 1,
+            cycle_length: int = 2
+    ):
+        """ Construct train, validation and test datasets from the .parquet files
+        in data_dir """
+
+        tr_fraq, va_fraq, te_fraq = tr_va_te_fraq
+
+        assert tr_fraq + va_fraq + te_fraq == 1
+
+        columns_schema = {
+            'time': tf.TensorSpec(tf.TensorShape([]), tf.float32),
+            'trip_distance': tf.TensorSpec(tf.TensorShape([]), tf.float32),
+            'pickup_location_id': tf.TensorSpec(tf.TensorShape([]), tf.int32),
+            'dropoff_location_id': tf.TensorSpec(tf.TensorShape([]), tf.int32),
+            'passenger_count': tf.TensorSpec(tf.TensorShape([]), tf.int32),
+            'vendor_id': tf.TensorSpec(tf.TensorShape([]), tf.int32),
+            'weekday': tf.TensorSpec(tf.TensorShape([]), tf.int32),
+            'month': tf.TensorSpec(tf.TensorShape([]), tf.int32),
+            'target': tf.TensorSpec(tf.TensorShape([]), tf.float32)}
+
+        common_args = {
+            'data_dir': data_dir,
+            'columns_schema': columns_schema,
+            'shuffle_buffer_size': shuffle_buffer_size,
+            'shuffle_seed': shuffle_seed,
+            'batch_size': batch_size,
+            'cycle_length': cycle_length,
+            'max_files': max_files}
+
+        ds_tr = self.pq_to_dataset(
+            take_fraq=tr_fraq, skip_fraq=0, **common_args)
+        ds_va = self.pq_to_dataset(
+            take_fraq=va_fraq, skip_fraq=tr_fraq, **common_args)
+        ds_te = self.pq_to_dataset(
+            take_fraq=0, skip_fraq=tr_fraq + va_fraq, **common_args)
+
+        return ds_tr, ds_va, ds_te
 
     def save(self, save_dir: str):
         return
