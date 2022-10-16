@@ -3,28 +3,16 @@ import re
 import logging
 import tempfile
 import numpy as np
-import pandas as pd
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
 from PIL import Image
 
+from src.dataset import DatasetGenerator
 import src.settings as settings
-import src.dataset as dataset
 import src.models.models as model
 
 tfkc = tf.keras.callbacks
 
 logger = logging.getLogger(__name__)
-
-
-def train_val_test_split(df_index: pd.Index):
-    """ Split data into training 80% validation 10% and test 10% parts """
-
-    idx_tr, idx_val_te = train_test_split(df_index, train_size=.8)
-    idx_val, idx_te = train_test_split(idx_val_te, test_size=.5)
-    del idx_val_te
-
-    return idx_tr, idx_val, idx_te
 
 
 def log_model_architecture(model, log_dir: str):
@@ -134,8 +122,23 @@ def get_experiment_id(logs_dir: str):
     return experiment_id
 
 
+def gpu_memory_setup():
+    """ Restrict the amount of GPU memory that can be allocated by TensorFlow"""
+
+    gpus = tf.config.list_physical_devices('GPU')
+
+    if gpus:
+        try:
+            tf.config.set_logical_device_configuration(
+                gpus[0],
+                [tf.config.LogicalDeviceConfiguration(memory_limit=settings.GPU_MEMORY_LIMIT * 1024)])
+            logical_gpus = tf.config.list_logical_devices('GPU')
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        except RuntimeError as e:
+            print(e)
+
+
 def train(
-        dataset_generator: str,
         model_wrapper: str,
         ds_args: dict,
         model_args: dict,
@@ -143,52 +146,56 @@ def train(
         training_args: dict
 ):
     """
-    save_dir
-    ├── checkpoints/
-    ├── model/
-    └── model_attributes.json
+    The following directories will be created/modified for an experiment with
+    an automatically generated id
 
-    log_dir
-    ├── train/
-    ├── validation/
-    └── plugins/
+    ARTIFACTS_DIR
+    └── ex_<id>  # saved models/checkpoints from experiment
+        ├── checkpoints/
+        ├── model/
+        └── model_attributes.json
+
+    TFBOARD_DIR
+    └── ex_<id>
+        ├── train/
+        └── validation/
 
     DATA_DIR
-    ├── location_masked/
-    └── location_raw/
+    ├── taxi_zones.zip          # already present
+    ├── raw/                    # already present
+    └── preprocessed/
+        ├── train/
+        ├── validation/
+        └── test/
     """
 
-    gpus = tf.config.list_physical_devices('GPU')
-    if gpus:
-        # Restrict TensorFlow to only allocate 20GB of memory on the first GPU
-        try:
-            tf.config.set_logical_device_configuration(
-                gpus[0],
-                [tf.config.LogicalDeviceConfiguration(memory_limit=20 * 1024)])
-            logical_gpus = tf.config.list_logical_devices('GPU')
-            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
-        except RuntimeError as e:
-            print(e)
+    gpu_memory_setup()
 
     experiment_id = get_experiment_id(settings.TFBOARD_DIR)
 
-    if dataset_generator == 'DSGMaskedLocation':
-        data_path = os.path.join(settings.DATA_DIR, 'location_masked', 'data_2016_01.parquet')
-    else:
-        data_path = os.path.join(settings.DATA_DIR, 'location_raw', 'data_2016_05.parquet')
     log_dir = os.path.join(settings.TFBOARD_DIR, f'ex_{experiment_id:03d}')
     save_dir = os.path.join(settings.ARTIFACTS_DIR, f'ex_{experiment_id:03d}')
 
+    data_raw_dir = os.path.join(settings.DATA_DIR, 'raw')
+    data_preproc_dir = os.path.join(settings.DATA_DIR, 'preprocessed')
+
+    tr_dir = os.path.join(data_preproc_dir, 'train')
+    va_dir = os.path.join(data_preproc_dir, 'validation')
+    te_dir = os.path.join(data_preproc_dir, 'test')
+
     # Initialize the dataset generator
-    dsg = getattr(dataset, dataset_generator)()
+    taxi_zones_path = os.path.join(settings.DATA_DIR, 'taxi_zones.zip')
+    dsg = DatasetGenerator(taxi_zones_path=taxi_zones_path)
 
-    df = pd.read_parquet(data_path)
-    idx_tr, idx_val, idx_te = train_val_test_split(df.index)
+    # Preprocess data and generate tr, va, te datasets if they do not exist
+    if not all(os.path.exists(d) for d in [tr_dir, va_dir, te_dir]):
+        dsg.preprocess_pq_files(
+            source_dir=data_raw_dir,
+            output_dir=data_preproc_dir)
 
-    ds_tr = dsg.df_to_dataset(df=df.loc[idx_tr], **ds_args)
-    ds_va = dsg.df_to_dataset(df=df.loc[idx_val], **ds_args)
-    ds_te = dsg.df_to_dataset(df=df.loc[idx_te], **{**ds_args,
-                                                    'shuffle_buffer_size': 0})
+    ds_tr = dsg.pq_to_dataset(data_dir=tr_dir, **ds_args)
+    ds_va = dsg.pq_to_dataset(data_dir=va_dir, **ds_args)
+    ds_te = dsg.pq_to_dataset(data_dir=te_dir, **ds_args)
 
     # Initialize the model generator
     mdl = getattr(model, model_wrapper)(ds=ds_tr, **model_args)
@@ -198,21 +205,19 @@ def train(
 
     log_model_architecture(mdl.model, log_dir)
 
-    _ = mdl.model.fit(
+    mdl.model.fit(
         ds_tr, validation_data=ds_va, callbacks=callbacks, **training_args)
 
     if save_dir:
         checkpoint_path = get_best_checkpoint(os.path.join(save_dir, 'checkpoints'))
         mdl.model.load_weights(checkpoint_path)
         mdl.save(save_dir)
-        dsg.save(save_dir)
 
     mdl.model.evaluate(ds_tr)
     mdl.model.evaluate(ds_va)
     mdl.model.evaluate(ds_te)
 
     all_args = dict(
-        dataset_generator=dataset_generator,
         model_wrapper=model_wrapper,
         model_args=model_args,
         dataset_args=ds_args,
