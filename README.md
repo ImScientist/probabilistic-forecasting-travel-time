@@ -68,4 +68,8 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
 
 ## Evaluate model
 
-- We can evaluate both the point predictions and the uncertainty estimation provided by the predicted probability distribution functions or quantiles. 
+- We can evaluate accuracy and the uncertainty estimation provided by the predicted probability distribution functions or quantiles by using the following metrics/plots:
+
+  - Fraction of cases (y-axis) where the observed percentile is below a given value (x-axis). Under observed percentile we understand the percentile of the predicted distribution to which the observation belongs to. For example, if we have predicted a normally distributed pdf with zero mean and unit standard deviation, and the observed value is 0, then the observed percentile will be 50. In the ideal case the plot should follow a straight line from (x,y) = (0,0) to (100,1).
+
+  - Histograms of the ratios between the mean and the standard deviation of the predicted distribution for every datapoint. For the model that predicts a fixed number of percentiles we replace the standard deviation with the difference between two percentiles, for example the 15-th and 85-th. This makes it harder to compare the predictions of both models.
