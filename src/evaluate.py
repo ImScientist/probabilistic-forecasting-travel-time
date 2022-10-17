@@ -1,15 +1,12 @@
 import io
 import os
+import json
 import logging
 import numpy as np
 import pandas as pd
-import scipy.stats as sc
 import tensorflow as tf
 import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 
 tfkl = tf.keras.layers
 tfkc = tf.keras.callbacks
@@ -19,6 +16,11 @@ tfb = tfp.bijectors
 dtype = tf.float32
 
 logger = logging.getLogger(__name__)
+
+
+def pretty_json(hp):
+    json_hp = json.dumps(hp, indent=2)
+    return "".join("\t" + line for line in json_hp.splitlines(True))
 
 
 def lognormal_pdf(loc, scale):
@@ -58,68 +60,6 @@ def plot_to_image(figure):
     return image
 
 
-def fig_clustered_predictions(
-        df: pd.DataFrame,
-        clusters: int = 20,
-        distribution_name: str = 'normal'
-):
-    """
-        Plot distributions of observations with the same
-        predicted distribution params p1, p2
-
-    Params
-    ------
-      df: table with the columns p1, p2, p_cluster
-    """
-
-    # cluster distributions based on the similarity of their trainable params
-    clustering_pipe = Pipeline([
-        ('scaling', StandardScaler()),
-        ('clustering', MiniBatchKMeans(n_clusters=clusters))])
-
-    df['p_cluster'] = clustering_pipe.fit_predict(df[['p1', 'p2']].values)
-
-    # relative number of elements per cluster
-    sizes = (df
-             .groupby(['p_cluster'])
-             .agg(n=('p1', 'count'))
-             .assign(n=lambda x: x / df.shape[0]))
-
-    rows = clusters // 2
-    cols = 2
-
-    fig = plt.figure(figsize=(10 * cols, 3 * rows))
-
-    for c in range(clusters):
-        ax = plt.subplot(rows, cols, c + 1)
-
-        frac = sizes.loc[c, 'n']
-
-        cond = lambda x: x['p_cluster'] == c
-
-        ax.hist(df.loc[cond, 'y'], bins=60, density=True,
-                label=f'param-cluster {c:02d}; samples fraction: {frac:.3f}')
-
-        xmin, xmax = plt.xlim()
-        x = np.linspace(xmin, xmax, 1_000)
-
-        p1_mean = df.loc[cond, 'p1'].mean()
-        p2_mean = df.loc[cond, 'p2'].mean()
-
-        if distribution_name == 'normal':
-            pdf = sc.norm(loc=p1_mean, scale=p2_mean).pdf
-        elif distribution_name == 'lognormal':
-            pdf = lognormal_pdf(loc=p1_mean, scale=p2_mean)
-        else:
-            pdf = sc.gamma(a=p1_mean, scale=1 / p2_mean).pdf
-
-        ax.plot(x, pdf(x), 'k-', lw=2, label='predicted pdf')
-
-        ax.legend()
-
-    return fig
-
-
 def fig_mean_to_std_distribution(df: pd.DataFrame):
     """
         Plot the distribution of the mean to standard deviation ratios
@@ -136,16 +76,24 @@ def fig_mean_to_std_distribution(df: pd.DataFrame):
 
 
 def fig_median_to_pct_range_distribution(
-        df: pd.DataFrame, qtile_range: tuple[int, int]
+        df: pd.DataFrame, qtile_range: tuple[float, float]
 ):
     """
         Plot the distribution of the ratio btw the median and some percentile
         range.
+
+    Params
+    ------
+      df: table with the columns:
+          `q_050`: median
+          `q_<quantile 1>`: first element of qtile_range
+          `q_<quantile 2>`: second element of qtile_range
+      qtile_range:
     """
 
-    label = 'mean to std ratio of predicted distributions'
     q1, q2 = qtile_range
     c1, c2 = f'q_{int(q1 * 100):03d}', f'q_{int(q2 * 100):03d}'
+    label = f'median to ({c2} - {c1}) ratio of predicted distributions'
 
     fig = plt.figure()
     plt.hist(df['q_050'] / (df[c2] - df[c1]), bins=100, label=label)
@@ -162,8 +110,8 @@ def fig_pct_skew(df: pd.DataFrame):
     Params
     ------
       df: table with the columns:
-         `pct`: percentile to which the observed value corresponds to
-         `frac`: fraction of observations that belong to a lower predicted
+          `pct`: percentile to which the observed value corresponds to
+          `frac`: fraction of observations that belong to a lower predicted
               percentile
     """
 
@@ -208,8 +156,9 @@ def evaluate_percentile_model(
         model,
         ds,
         log_dir: str,
-        quantiles: list,
-        qtile_range: tuple[int, int] = None
+        log_data: dict,
+        quantiles: tuple,
+        qtile_range: tuple[float, float]
 ):
     """ Compare predicted percentiles against observations """
 
@@ -229,22 +178,26 @@ def evaluate_percentile_model(
         img = plot_to_image(fig)
         tf.summary.image(name, img, step=0)
 
-    if qtile_range is not None:
-        fig = fig_median_to_pct_range_distribution(df, qtile_range=qtile_range)
+    fig = fig_median_to_pct_range_distribution(df, qtile_range=qtile_range)
 
-        with file_writer.as_default():
-            name = "median to pct-range of predicted distributions"
-            img = plot_to_image(fig)
-            tf.summary.image(name, img, step=0)
+    with file_writer.as_default():
+        name = "median to pct-range of predicted distributions"
+        img = plot_to_image(fig)
+        tf.summary.image(name, img, step=0)
+
+    with file_writer.as_default():
+        log_data = pretty_json(log_data)
+        tf.summary.text("experiment_args", log_data, step=0)
 
 
-def evaluate_parametrized_pdf_model(model, ds, log_dir: str, clusters: int = 20):
+def evaluate_parametrized_pdf_model(
+        model, ds, log_dir: str, log_data: dict, clusters: int = 20
+):
     """ Compare predicted distributions against observations """
 
     save_dir = os.path.join(log_dir, 'train')
     file_writer = tf.summary.create_file_writer(save_dir)
 
-    distribution_name = model.layers[-1].name
     distribution_fn = model.layers[-1].function
 
     model_deterministic = tf.keras.Model(
@@ -271,14 +224,6 @@ def evaluate_parametrized_pdf_model(model, ds, log_dir: str, clusters: int = 20)
         Figures
     """
 
-    fig = fig_clustered_predictions(
-        df=df, clusters=clusters, distribution_name=distribution_name)
-
-    with file_writer.as_default():
-        name = "predicted distributions"
-        img = plot_to_image(fig)
-        tf.summary.image(name, img, step=0)
-
     fig = fig_mean_to_std_distribution(df=df)
 
     with file_writer.as_default():
@@ -292,3 +237,7 @@ def evaluate_parametrized_pdf_model(model, ds, log_dir: str, clusters: int = 20)
         name = 'predicted pct vs frac of observations with lower predicted pct'
         img = plot_to_image(fig)
         tf.summary.image(name, img, step=0)
+
+    with file_writer.as_default():
+        log_data = pretty_json(log_data)
+        tf.summary.text("experiment_args", log_data, step=0)

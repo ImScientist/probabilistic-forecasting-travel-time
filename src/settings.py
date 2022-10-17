@@ -1,9 +1,9 @@
-PROJECT_ID = "ai-ta-test"
-# GCS_BUCKET = "ims-dataset"
 DATA_DIR = "/home/ai/Data/nyc_taxi"
-CLUSTERS = 20
-BATCH_SIZE = 2 ** 15  # 32768
-L2 = 1e-3  # L2 regularization strength
-DROPOUT = .2  # Dropout fraction
-TFBOARD_DIR = '/home/ai/projects/carrrrs_ny/tfboard'
-ARTIFACTS_DIR = '/tmp/ny_taxi'
+TFBOARD_DIR = "/home/ai/projects/cars_ny/tfboard"
+ARTIFACTS_DIR = "/home/ai/projects/cars_ny/saved_models"
+
+# maximum memory in GB that can be allocated by tensorflow
+GPU_MEMORY_LIMIT = 20
+
+# not relevant
+RANDOM_VAR = 48
