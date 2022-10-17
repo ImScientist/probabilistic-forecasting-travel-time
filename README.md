@@ -20,7 +20,8 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
 
 ## Collect & preprocess data
 
-- We can collect the NYC taxi trip data (drives and taxi zones) for the entire 2016 from [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) website, and store it in `DATA_DIR`:
+- We can collect the NYC taxi trip data (drives and taxi zones) for the entire 2016
+  from [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) website, and store it in `DATA_DIR`:
   ```shell
   PYTHONPATH=$(pwd) python src/main.py collect-data --year=2016
   ```
@@ -30,7 +31,8 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
   PYTHONPATH=$(pwd) python src/main.py preprocess-data \
     --tr=0.8 --va=0.1 --te=0.1
   ```
-  It splits the data from every month into a training, validation and test dataset and stores it in a separate folder, as shown below:
+  It splits the data from every month into a training, validation and test dataset and stores it in a separate folder,
+  as shown below:
 
   ```shell
   $DATA_DIR
@@ -42,13 +44,12 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
   ```
   If you are worried about data drift over time you might need a different type of data splitting.
 
-
 ## Train model
 
 - Change the following variables in `src/settings.py`:
-  - `DATA_DIR`: raw and preprocessed data location   
-  - `TFBOARD_DIR`: location of the logs visualized in tensorboard
-  - `ARTIFACTS_DIR`: location where the model and dataset wrappers will be stored
+    - `DATA_DIR`: raw and preprocessed data location
+    - `TFBOARD_DIR`: location of the logs visualized in tensorboard
+    - `ARTIFACTS_DIR`: location where the model and dataset wrappers will be stored
 
 
 - Train the model. The json strings that you can provide overwrite the default arguments used by the model:
@@ -61,7 +62,8 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
     --training_args='{"epochs": 40}'
   ```
 
-- After training the model the following directory structure will be generated (the experiment id is generated automatically):
+- After training the model the following directory structure will be generated (the experiment id is generated
+  automatically):
   ```shell
   $ARTIFACTS_DIR
   └── ex_<id>
@@ -77,12 +79,74 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
 
 ## Evaluate model
 
-- We can evaluate accuracy and the uncertainty estimation provided by the predicted probability distribution functions or quantiles by using the following metrics/plots:
+- We can evaluate accuracy and the uncertainty estimation provided by the predicted probability distribution functions
+  or quantiles by using the following metrics/plots:
 
-  - Fraction of cases (y-axis) where the observed percentile is below a given value (x-axis). Under observed percentile we understand the percentile of the predicted distribution to which the observation belongs to. For example, if we have predicted a normally distributed pdf with zero mean and unit standard deviation, and the observed value is 0, then the observed percentile will be 50. In the ideal case the plot should follow a straight line from (x,y) = (0,0) to (100,1).
-  <br><br>
+    - Fraction of cases (y-axis) where the observed percentile is below a given value (x-axis). Under observed
+      percentile we understand the percentile of the predicted distribution to which the observation belongs to. For
+      example, if we have predicted a normally distributed pdf with zero mean and unit standard deviation, and the
+      observed value is 0, then the observed percentile will be 50. In the ideal case the plot should follow a straight
+      line from (x,y) = (0,0) to (100,1).
+      <br><br>
 
-  - Histograms of the ratios between the mean and the standard deviation of the predicted distribution for every datapoint. For the model that predicts a fixed number of percentiles we replace the standard deviation with the difference between two percentiles, for example the 15-th and 85-th. This makes it harder to compare the predictions of both models.
-     <br><br>
-     <img src="figs/pdf-model_pct_plot.png" alt="isolated" height="250"/>
-     <img src="figs/pdf-model_mean-to-std_histogram.png" alt="isolated" height="250"/>
+    - Histograms of the ratios between the mean and the standard deviation of the predicted distribution for every
+      datapoint. For the model that predicts a fixed number of percentiles we replace the standard deviation with the
+      difference between two percentiles, for example the 15-th and 85-th. This makes it harder to compare the
+      predictions of both models.
+      <br><br>
+      <img src="figs/pdf-model_pct_plot.png" alt="isolated" height="250"/>
+      <img src="figs/pdf-model_mean-to-std_histogram.png" alt="isolated" height="250"/>
+
+## Serve model (WIP)
+
+- Variables to set:
+  ```shell
+  ARTIFACTS_DIR= < settings.ARTIFACTS_DIR >
+  EXPERIMENT=ex_010
+  MODEL_DIR=${ARTIFACTS_DIR}/${EXPERIMENT}
+  ```
+
+- Model that predicts parameters of a probability distribution function:
+  - Since the output of the model is a random variable we make it deterministic by:
+    - cutting the last layer
+    - eventually adding a deterministic layer that calculates the mean and standard deviation of the distribution
+    
+    To create this modified model we run:
+    ```shell
+    PYTHONPATH=$(pwd) python src/main.py prepare-servable \
+      --load_dir=${MODEL_DIR}
+    ```
+
+  - Start TensorFlow Serving container and make a sample request:
+    ```shell
+    docker run -t --rm -p 8501:8501 \
+        --name=serving \
+        -v "$MODEL_DIR/model_mean_std:/models/model_mean_std/1" \
+        -e MODEL_NAME=model_mean_std \
+        tensorflow/serving
+
+    # Does not work for the model with Lognormal dist
+    curl -X POST http://localhost:8501/v1/models/model_mean_std:predict \
+          -H 'Content-type: application/json' \
+          -d '{"signature_name": "serving_default", "instances": [{"dropoff_area": [7.9e-05], "dropoff_lat": [40.723752], "dropoff_lon": [-73.976968], "month": [1], "passenger_count": [1], "pickup_area": [0.000422], "pickup_lat": [40.744235], "pickup_lon": [-73.906306], "time": [800], "trip_distance": [2.3], "vendor_id": [0], "weekday": [3]}]}'
+    
+    docker container stop serving
+    ```
+
+- Quantile model (not tested)
+
+
+- Useful commands to check the model signature:
+  ```shell
+  # output 1,2: `serve`
+  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model
+  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model_mean_std
+  
+  # output 1: `__saved_model_init_op`
+  # output 2,3: `__saved_model_init_op`, `serving_default`
+  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model --tag_set serve
+  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model_mean_std --tag_set serve
+  
+  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model_mean_std \
+    --tag_set serve --signature_def serving_default
+  ```

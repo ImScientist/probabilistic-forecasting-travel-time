@@ -9,6 +9,7 @@ import src.settings as settings
 from src.data.data_collection import get_data
 from src.data.preprocessing import preprocess_pq_files
 from src.train import train as train_fn
+from src.serve import prepare_model_mean_std
 
 logging.basicConfig()
 logger = logging.getLogger()
@@ -82,19 +83,22 @@ def train(model_wrapper, model_args, ds_args, callbacks_args, training_args):
         data_preprocessed_dir=data_preprocessed_dir)
 
 
+@cli.command()
+@click.option("--load_dir", required=True, type=str,
+              help="Location of the stored model")
+def prepare_servable(load_dir: str):
+    """ WIP: Prepare a model servable; Does not work for Lognormal dists """
+
+    prepare_model_mean_std(load_dir)
+
+
 if __name__ == "__main__":
     """
     PYTHONPATH=$(pwd) python src/main.py --help
     
-    export TF_GPU_ALLOCATOR=cuda_malloc_async
-    export TF_GPU_THREAD_MODE=gpu_private
-
-    # --model_args='{"l2": 0.001, "batch_normalization": true, "embedding_dim": 20, "layer_sizes": [32, [32, 32], 8]}' \
-    # --model_args='{"embedding_dim": 20, "layer_sizes": [64, [64, 64], [64, 64], 32, 8]}' \
-
     PYTHONPATH=$(pwd) python src/main.py train \
         --model_wrapper=ModelPDF \
-        --model_args='{"l2": 0.0001, "batch_normalization": false, "layer_sizes": [128, 128, 64, 32, 8]}' \
+        --model_args='{"l2": 0.0001, "batch_normalization": false, "layer_sizes": [64, [64, 64], [64, 64], 32, 8]}' \
         --ds_args='{"max_files": 2}' \
         --callbacks_args='{"period": 100, "profile_batch": 0}' \
         --training_args='{"epochs": 3000}'

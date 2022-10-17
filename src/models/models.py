@@ -8,7 +8,7 @@ import tensorflow_probability as tfp
 
 from abc import abstractmethod
 from src.models import layer_generator
-from src.evaluation import (
+from src.evaluate import (
     evaluate_parametrized_pdf_model,
     evaluate_percentile_model)
 
@@ -67,6 +67,7 @@ class ModelWrapper:
         self.dropout_min_layer_size = dropout_min_layer_size
         self.batch_normalization = batch_normalization
 
+        # defined in the child class
         self.model = None
         self.custom_objects = None
 
@@ -113,11 +114,11 @@ class ModelWrapper:
 class ModelPDF(ModelWrapper):
     def __init__(
             self,
-            num_feats: list[str],
-            cat_int_feats: list[str],
-            cat_str_feats: list[str],
-            emb_int_feats: list[str],
-            emb_str_feats: list[str],
+            num_feats: list[str] = None,
+            cat_int_feats: list[str] = None,
+            cat_str_feats: list[str] = None,
+            emb_int_feats: list[str] = None,
+            emb_str_feats: list[str] = None,
             embedding_dim: int = 10,
             layer_sizes: tuple | list = None,
             l2: float = .001,
@@ -209,11 +210,11 @@ class ModelPDF(ModelWrapper):
 class ModelIQF(ModelWrapper):
     def __init__(
             self,
-            num_feats: list[str],
-            cat_int_feats: list[str],
-            cat_str_feats: list[str],
-            emb_int_feats: list[str],
-            emb_str_feats: list[str],
+            num_feats: list[str] = None,
+            cat_int_feats: list[str] = None,
+            cat_str_feats: list[str] = None,
+            emb_int_feats: list[str] = None,
+            emb_str_feats: list[str] = None,
             embedding_dim: int = 10,
             layer_sizes: tuple | list = None,
             l2: float = .001,
