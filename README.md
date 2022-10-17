@@ -1,6 +1,6 @@
-# Probabilistic prediction of traveling times
+# Probabilistic prediction of travel times
 
-We will use a neural network to predict the travelling time distribution between two locations. To predict a
+We will use a neural network to predict the travel time distribution between two locations. To predict a
 distribution instead of a single value we modify the neural network by:
 
 - feeding its outputs to the parameters of a probability distribution function (LogNormal oder Normal). Optimizing the
@@ -143,7 +143,7 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
   saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model_mean_std
   
   # output 1: `__saved_model_init_op`
-  # output 2,3: `__saved_model_init_op`, `serving_default`
+  # output 2: `__saved_model_init_op`, `serving_default`
   saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model --tag_set serve
   saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model_mean_std --tag_set serve
   
