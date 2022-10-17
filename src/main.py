@@ -1,3 +1,4 @@
+import os
 import json
 import click
 import logging
@@ -5,7 +6,8 @@ import warnings
 
 import src.default_args as default_args
 import src.settings as settings
-from src.data_collection import get_data
+from src.data.data_collection import get_data
+from src.data.preprocessing import preprocess_pq_files
 from src.train import train as train_fn
 
 logging.basicConfig()
@@ -13,6 +15,9 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 warnings.filterwarnings("ignore", category=UserWarning)
+
+data_raw_dir = os.path.join(settings.DATA_DIR, 'raw')
+data_preprocessed_dir = os.path.join(settings.DATA_DIR, 'preprocessed')
 
 
 @click.group()
@@ -27,7 +32,23 @@ def collect_data(year):
     it locally (separate .parquet files for every month)
     """
 
-    get_data(save_dir=settings.DATA_DIR, year=year)
+    get_data(save_dir=data_raw_dir, year=year)
+
+
+@cli.command()
+@click.option('--tr', default=.8, type=float, help='training fraction')
+@click.option('--va', default=.1, type=float, help='validation fraction')
+@click.option('--te', default=.1, type=float, help='test fraction')
+def preprocess_data(tr, va, te):
+    """ Preprocess data and split it into a training, validation and test
+    datasets """
+
+    assert tr + va + te == 1
+
+    preprocess_pq_files(
+        source_dir=data_raw_dir,
+        output_dir=data_preprocessed_dir,
+        tr_va_te_frac=(tr, va, te))
 
 
 @cli.command()
@@ -57,7 +78,8 @@ def train(model_wrapper, model_args, ds_args, callbacks_args, training_args):
         ds_args=ds_args,
         model_args=model_args,
         callbacks_args=callbacks_args,
-        training_args=training_args)
+        training_args=training_args,
+        data_preprocessed_dir=data_preprocessed_dir)
 
 
 if __name__ == "__main__":
@@ -72,10 +94,10 @@ if __name__ == "__main__":
 
     PYTHONPATH=$(pwd) python src/main.py train \
         --model_wrapper=ModelPDF \
-        --model_args='{"l2": 0.0001, "batch_normalization": false, "embedding_dim": 32, "layer_sizes": [64, 64, 32, 8]}' \
+        --model_args='{"l2": 0.0001, "batch_normalization": false, "layer_sizes": [128, 128, 64, 32, 8]}' \
         --ds_args='{"max_files": 2}' \
         --callbacks_args='{"period": 100, "profile_batch": 0}' \
-        --training_args='{"epochs": 1500}'
+        --training_args='{"epochs": 3000}'
     """
 
     cli()

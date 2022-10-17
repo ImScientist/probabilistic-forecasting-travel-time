@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow as tf
 from PIL import Image
 
-from src.dataset import DatasetGenerator
+from src.data.dataset import pq_to_dataset
 import src.settings as settings
 import src.models.models as model
 
@@ -143,31 +143,10 @@ def train(
         ds_args: dict,
         model_args: dict,
         callbacks_args: dict,
-        training_args: dict
+        training_args: dict,
+        data_preprocessed_dir: str
 ):
-    """
-    The following directories will be created/modified for an experiment with
-    an automatically generated id
-
-    ARTIFACTS_DIR
-    └── ex_<id>  # saved models/checkpoints from experiment
-        ├── checkpoints/
-        ├── model/
-        └── model_attributes.json
-
-    TFBOARD_DIR
-    └── ex_<id>
-        ├── train/
-        └── validation/
-
-    DATA_DIR
-    ├── taxi_zones.zip          # already present
-    ├── raw/                    # already present
-    └── preprocessed/
-        ├── train/
-        ├── validation/
-        └── test/
-    """
+    """ Train and evaluate a model """
 
     gpu_memory_setup()
 
@@ -176,26 +155,14 @@ def train(
     log_dir = os.path.join(settings.TFBOARD_DIR, f'ex_{experiment_id:03d}')
     save_dir = os.path.join(settings.ARTIFACTS_DIR, f'ex_{experiment_id:03d}')
 
-    data_raw_dir = os.path.join(settings.DATA_DIR, 'raw')
-    data_preproc_dir = os.path.join(settings.DATA_DIR, 'preprocessed')
+    # Initialize the training, validation and test datasets
+    tr_dir = os.path.join(data_preprocessed_dir, 'train')
+    va_dir = os.path.join(data_preprocessed_dir, 'validation')
+    te_dir = os.path.join(data_preprocessed_dir, 'test')
 
-    tr_dir = os.path.join(data_preproc_dir, 'train')
-    va_dir = os.path.join(data_preproc_dir, 'validation')
-    te_dir = os.path.join(data_preproc_dir, 'test')
-
-    # Initialize the dataset generator
-    taxi_zones_path = os.path.join(settings.DATA_DIR, 'taxi_zones.zip')
-    dsg = DatasetGenerator(taxi_zones_path=taxi_zones_path)
-
-    # Preprocess data and generate tr, va, te datasets if they do not exist
-    if not all(os.path.exists(d) for d in [tr_dir, va_dir, te_dir]):
-        dsg.preprocess_pq_files(
-            source_dir=data_raw_dir,
-            output_dir=data_preproc_dir)
-
-    ds_tr = dsg.pq_to_dataset(data_dir=tr_dir, **ds_args)
-    ds_va = dsg.pq_to_dataset(data_dir=va_dir, **ds_args)
-    ds_te = dsg.pq_to_dataset(data_dir=te_dir, **ds_args)
+    ds_tr = pq_to_dataset(data_dir=tr_dir, **ds_args)
+    ds_va = pq_to_dataset(data_dir=va_dir, **ds_args)
+    ds_te = pq_to_dataset(data_dir=te_dir, **ds_args)
 
     # Initialize the model generator
     mdl = getattr(model, model_wrapper)(ds=ds_tr, **model_args)
@@ -208,10 +175,10 @@ def train(
     mdl.model.fit(
         ds_tr, validation_data=ds_va, callbacks=callbacks, **training_args)
 
-    if save_dir:
-        checkpoint_path = get_best_checkpoint(os.path.join(save_dir, 'checkpoints'))
-        mdl.model.load_weights(checkpoint_path)
-        mdl.save(save_dir)
+    # Save the model with the best weights
+    checkpoint_path = get_best_checkpoint(os.path.join(save_dir, 'checkpoints'))
+    mdl.model.load_weights(checkpoint_path)
+    mdl.save(save_dir)
 
     mdl.model.evaluate(ds_tr)
     mdl.model.evaluate(ds_va)

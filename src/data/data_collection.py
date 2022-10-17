@@ -24,7 +24,7 @@ def get_data(save_dir: str, year: int):
         uri = ('https://d37ci6vzurychx.cloudfront.net/trip-data/'
                f'yellow_tripdata_{year}-{month:02d}.parquet')
 
-        dst = os.path.join(save_dir, 'raw', f'data_{year}-{month:02d}.parquet')
+        dst = os.path.join(save_dir, f'data_{year}-{month:02d}.parquet')
 
         logger.info(f'Store data in {dst}')
         pd.read_parquet(uri, columns=columns).to_parquet(dst)
