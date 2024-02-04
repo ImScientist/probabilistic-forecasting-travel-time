@@ -48,7 +48,8 @@ def pq_to_dataset(
         'month': tf.TensorSpec(tf.TensorShape([]), tf.int32),
         'target': tf.TensorSpec(tf.TensorShape([]))}
 
-    files = sorted(glob.glob('*.parquet', root_dir=data_dir))
+    # files = sorted(glob.glob('*.parquet', root_dir=data_dir))
+    files = sorted(glob.glob(f'{data_dir}/*.parquet'))
     files = [os.path.join(data_dir, x) for x in files]
     files = files[:max_files]
 

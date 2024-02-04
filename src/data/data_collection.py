@@ -6,7 +6,7 @@ from urllib.request import urlretrieve
 logger = logging.getLogger(__name__)
 
 
-def get_data(save_dir: str, year: int):
+def collect_data(save_dir: str, year: int):
     """ Get NYC taxi data and taxi-zones data for a particular year """
 
     os.makedirs(save_dir, exist_ok=True)

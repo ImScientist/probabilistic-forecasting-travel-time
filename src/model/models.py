@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import json
 import logging
@@ -7,8 +9,8 @@ import tensorflow_addons as tfa
 import tensorflow_probability as tfp
 
 from abc import abstractmethod
-from src.models import layer_generator
-from src.evaluate import (
+from model import layer_generator
+from evaluate import (
     evaluate_parametrized_pdf_model,
     evaluate_percentile_model)
 
@@ -222,7 +224,7 @@ class ModelIQF(ModelWrapper):
             dropout_min_layer_size: int = 12,
             batch_normalization: bool = False,
             quantiles: tuple = (.05, .15, .3, .5, .7, .85, .95),
-            quantile_range: tuple = (.15, .85),
+            quantile_range: tuple[float, float] = (.15, .85),
             ds=None,
             load_dir: str = None,
             **kwargs

@@ -17,7 +17,7 @@ import requests
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-from src.models.models import ModelPDF
+from model.models import ModelPDF
 
 tfkl = tf.keras.layers
 tfkc = tf.keras.callbacks
