@@ -103,7 +103,7 @@ class ModelWrapper:
         attributes = {k: getattr(self, k) for k in vars(self).keys()
                       if k not in ('model', 'custom_objects',)}
 
-        self.model.save(model_dir, save_traces=False)
+        self.model.save(model_dir)  # save_traces=False
 
         with open(attributes_path, 'w') as f:
             json.dump(attributes, f, indent='\t')

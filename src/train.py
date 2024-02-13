@@ -76,7 +76,9 @@ def create_callbacks(
 
     if early_stopping_patience is not None:
         callbacks.append(
-            tfkc.EarlyStopping(patience=early_stopping_patience))
+            tfkc.EarlyStopping(
+                patience=early_stopping_patience,
+                verbose=verbose))
 
     if save_dir:
         path = os.path.join(

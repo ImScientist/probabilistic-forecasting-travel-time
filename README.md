@@ -123,56 +123,34 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
       <img src="figs/pdf-model_pct_plot.png" alt="isolated" height="250"/>
       <img src="figs/pdf-model_mean-to-std_histogram.png" alt="isolated" height="250"/>
 
-## Serve model (WIP)
+## Serve model
 
-- Variables to set:
-  ```shell
-  ARTIFACTS_DIR= < settings.ARTIFACTS_DIR >
-  EXPERIMENT=ex_010
-  MODEL_DIR=${ARTIFACTS_DIR}/${EXPERIMENT}
-  ```
+- We serve a `ModelPDF` that can output the mean and standard deviation of the predicted travel time distribution.
 
-- Model that predicts parameters of a probability distribution function:
-    - Since the output of the model is a random variable we make it deterministic by:
-        - cutting the last layer
-        - eventually adding a deterministic layer that calculates the mean and standard deviation of the distribution
-
-      To create this modified model we run:
+    - First, we create a servable from the trained model. For example, we will use the model from experiment `ex_011`
+      that is stored in `$ARTIFACTS_DIR/ex_011`. The code below generates a new servable
+      in `$ARTIFACTS_DIR/ex_001/model_mean_std`:
       ```shell
-      PYTHONPATH=$(pwd) python src/main.py prepare-servable \
-        --load_dir=${MODEL_DIR}
+      docker run -it --rm --runtime=nvidia --gpus all --name=experiment \
+        -v $ARTIFACTS_DIR:/tf/artifacts \
+        travel_time:latest python src/main.py prepare-servable \
+        --load_dir=/tf/artifacts/ex_011
       ```
-
-    - Start TensorFlow Serving container and make a sample request:
+    - Next we spawn the tf serving container and mount to it the newly created servable:
       ```shell
+      MODEL_DIR=$ARTIFACTS_DIR/ex_011/model_mean_std
+      
       docker run -t --rm -p 8501:8501 \
           --name=serving \
-          -v "$MODEL_DIR/model_mean_std:/models/model_mean_std/1" \
+          -v "$MODEL_DIR:/models/model_mean_std/1" \
           -e MODEL_NAME=model_mean_std \
-          tensorflow/serving
-  
-      # Does not work for the model with Lognormal dist
-      curl -X POST http://localhost:8501/v1/models/model_mean_std:predict \
-            -H 'Content-type: application/json' \
-            -d '{"signature_name": "serving_default", "instances": [{"dropoff_area": [7.9e-05], "dropoff_lat": [40.723752], "dropoff_lon": [-73.976968], "month": [1], "passenger_count": [1], "pickup_area": [0.000422], "pickup_lat": [40.744235], "pickup_lon": [-73.906306], "time": [800], "trip_distance": [2.3], "vendor_id": [0], "weekday": [3]}]}'
-      
-      docker container stop serving
+          tensorflow/serving:2.13.0
       ```
 
-- Quantile model (not tested)
-
-
-- Useful commands to check the model signature:
-  ```shell
-  # output 1,2: `serve`
-  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model
-  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model_mean_std
-  
-  # output 1: `__saved_model_init_op`
-  # output 2: `__saved_model_init_op`, `serving_default`
-  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model --tag_set serve
-  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model_mean_std --tag_set serve
-  
-  saved_model_cli show --dir ${ARTIFACTS_DIR}/${EXPERIMENT}/model_mean_std \
-    --tag_set serve --signature_def serving_default
-  ```
+    - Test exported model predictions of the travel-time mean:
+      ```shell
+      curl -X POST http://localhost:8501/v1/models/model_mean_std/versions/1:predict \
+      -H 'Content-type: application/json' \
+      -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
+      ```
+      To get the predicted std change the value of the `signature_name` from `mean_value` to `std`.

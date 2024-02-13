@@ -10,7 +10,7 @@ import data
 import train
 import settings
 import default_args
-from serve import prepare_model_mean_std
+from serve import prepare_servable_mean_std
 from model.models import ModelIQF, ModelPDF
 
 logging.basicConfig()
@@ -89,9 +89,9 @@ def train_fn(model_wrapper, model_args, ds_args, callbacks_args, training_args):
 @click.option("--load_dir", required=True, type=str,
               help="Location of the stored model")
 def prepare_servable_fn(load_dir: str):
-    """ WIP: Prepare a model servable; Does not work for Lognormal dists """
+    """ Prepare a model servable """
 
-    prepare_model_mean_std(load_dir)
+    prepare_servable_mean_std(load_dir)
 
 
 if __name__ == "__main__":
