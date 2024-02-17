@@ -27,9 +27,9 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
 
 - The environment variables that will be used in the model are in `src/settings.py`. Change them:
   ```shell
-  export DATA_DIR=data
-  export TFBOARD_DIR=tfboard
-  export ARTIFACTS_DIR=artifacts
+  export DATA_DIR="$(pwd)"/data
+  export TFBOARD_DIR="$(pwd)"/tfboard
+  export ARTIFACTS_DIR="$(pwd)"/artifacts
   
   # maximum memory in GB that can be allocated by tensorflow
   export GPU_MEMORY_LIMIT=16
@@ -85,7 +85,7 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
     --model_args='{"l2": 0.0001, "batch_normalization": false, "layer_sizes": [64, [64, 64], [64, 64], 32, 8]}' \
     --ds_args='{"max_files": 2}' \
     --callbacks_args='{"period": 10, "profile_batch": 0}' \
-    --training_args='{"epochs": 40}'
+    --training_args='{"epochs": 100}'
   ```
 
 - After training the model the following directory structure will be generated (the experiment id is generated
@@ -101,6 +101,16 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
   └── ex_<id>
       ├── train/
       └── validation/
+  ```
+
+- Check the training logs with tensorboard:
+  ```shell
+  docker run --rm --name=tfboard \
+    -p 6006:6006 \
+    -v $TFBOARD_DIR:/tf/tfboard \
+    travel_time:latest tensorboard --logdir /tf/tfboard --host 0.0.0.0
+  
+  # visit http://0.0.0.0:6006/
   ```
 
 ## Evaluate model
@@ -128,17 +138,17 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
 - We serve a `ModelPDF` that can output the mean and standard deviation of the predicted travel time distribution.
 
     - First, we create a servable from the trained model. For example, we will use the model from experiment `ex_011`
-      that is stored in `$ARTIFACTS_DIR/ex_011`. The code below generates a new servable
-      in `$ARTIFACTS_DIR/ex_001/model_mean_std`:
+      that is stored in `$ARTIFACTS_DIR/ex_000`. The code below generates a new servable
+      in `$ARTIFACTS_DIR/ex_000/model_mean_std`:
       ```shell
       docker run -it --rm --runtime=nvidia --gpus all --name=experiment \
         -v $ARTIFACTS_DIR:/tf/artifacts \
         travel_time:latest python src/main.py prepare-servable \
-        --load_dir=/tf/artifacts/ex_011
+        --load_dir=/tf/artifacts/ex_000
       ```
     - Next we spawn the tf serving container and mount to it the newly created servable:
       ```shell
-      MODEL_DIR=$ARTIFACTS_DIR/ex_011/model_mean_std
+      MODEL_DIR=$ARTIFACTS_DIR/ex_000/model_mean_std
       
       docker run -t --rm -p 8501:8501 \
           --name=serving \
@@ -153,4 +163,9 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
       -H 'Content-type: application/json' \
       -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
       ```
-      To get the predicted std change the value of the `signature_name` from `mean_value` to `std`.
+      To get the predicted std change the value of the `signature_name` from `mean_value` to `std`:
+      ```shell
+      curl -X POST http://localhost:8501/v1/models/model_mean_std/versions/1:predict \
+      -H 'Content-type: application/json' \
+      -d '{"signature_name": "std", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
+      ```

@@ -6,16 +6,15 @@ import click
 import logging
 import warnings
 
-import data
 import train
 import settings
 import default_args
+from data import data_collection, data_preprocessing
 from serve import prepare_servable_mean_std
 from model.models import ModelIQF, ModelPDF
 
-logging.basicConfig()
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -35,7 +34,7 @@ def collect_data_fn(year):
     it locally (separate .parquet files for every month)
     """
 
-    data.data_collection.collect_data(save_dir=data_raw_dir, year=year)
+    data_collection.collect_data(save_dir=data_raw_dir, year=year)
 
 
 @cli.command("preprocess-data")
@@ -48,7 +47,7 @@ def preprocess_data_fn(tr, va, te):
 
     assert tr + va + te == 1
 
-    data.preprocessing.preprocess_pq_files(
+    data_preprocessing.preprocess_pq_files(
         source_dir=data_raw_dir,
         output_dir=data_preprocessed_dir,
         tr_va_te_frac=(tr, va, te))
