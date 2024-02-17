@@ -1,9 +1,10 @@
-DATA_DIR = "/home/ai/Data/nyc_taxi"
-TFBOARD_DIR = "/home/ai/projects/cars_ny/tfboard"
-ARTIFACTS_DIR = "/home/ai/projects/cars_ny/saved_models"
+from environs import Env
+
+env = Env()
+
+DATA_DIR = env.str("DATA_DIR", "data")
+TFBOARD_DIR = env.str("TFBOARD_DIR", "tfboard")
+ARTIFACTS_DIR = env.str("ARTIFACTS_DIR", "artifacts")
 
 # maximum memory in GB that can be allocated by tensorflow
-GPU_MEMORY_LIMIT = 20
-
-# not relevant
-RANDOM_VAR = 48
+GPU_MEMORY_LIMIT = env.int("GPU_MEMORY_LIMIT", 16)

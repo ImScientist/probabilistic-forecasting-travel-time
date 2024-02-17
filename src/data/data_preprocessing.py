@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 import os
-import glob
 import logging
 
 import numpy as np
@@ -84,7 +85,7 @@ def generate_features(df: pd.DataFrame, taxi_zones: pd.DataFrame) -> pd.DataFram
 
     cond = lambda x: (
         (x['dropoff_datetime'] - x['pickup_datetime'])
-        .dt.total_seconds().between(1, 6000))
+        .dt.total_seconds().between(1, 6_000))
 
     df = (
         df
@@ -137,8 +138,13 @@ def preprocess_pq_files(
     taxi_zones_path = os.path.join(source_dir, 'taxi_zones.zip')
     taxi_zones = taxi_zones_summary(taxi_zones_path)
 
-    files = glob.glob('*.parquet', root_dir=source_dir)
+    # files = glob.glob('*.parquet', root_dir=source_dir)
+    # files = sorted(files)
+    files = os.listdir(source_dir)
+    files = [f for f in files if f.endswith('.parquet')]
     files = sorted(files)
+
+    logger.info(f'files {files}')
 
     for file in files:
         path_load = os.path.join(source_dir, file)

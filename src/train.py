@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import re
 import logging
@@ -6,21 +8,29 @@ import numpy as np
 import tensorflow as tf
 from PIL import Image
 
-from src.data.dataset import pq_to_dataset
-import src.settings as settings
-import src.models.models as model
+import settings
+from data.dataset import pq_to_dataset
+from model.models import ModelWrapper
 
 tfkc = tf.keras.callbacks
 
 logger = logging.getLogger(__name__)
 
 
-def log_model_architecture(model, log_dir: str):
+def remove_suffix(input_string, suffix):
+    # .removesuffix() not supported in 3.8
+
+    if suffix and input_string.endswith(suffix):
+        return input_string[:-len(suffix)]
+    return input_string
+
+
+def log_model_architecture(model_, log_dir: str):
     """ Store a non-interactive readable model architecture """
 
     with tempfile.NamedTemporaryFile('w', suffix=".png") as temp:
         _ = tf.keras.utils.plot_model(
-            model,
+            model_,
             to_file=temp.name,
             show_shapes=True,
             dpi=64)
@@ -66,7 +76,9 @@ def create_callbacks(
 
     if early_stopping_patience is not None:
         callbacks.append(
-            tfkc.EarlyStopping(patience=early_stopping_patience))
+            tfkc.EarlyStopping(
+                patience=early_stopping_patience,
+                verbose=verbose))
 
     if save_dir:
         path = os.path.join(
@@ -99,7 +111,7 @@ def get_best_checkpoint(
     checkpoints = filter(lambda x: x is not None, checkpoints)
     best_checkpoint = min(checkpoints, key=lambda x: float(x.group(1)))
 
-    checkpoint_name = best_checkpoint.group(0).removesuffix('.index')
+    checkpoint_name = remove_suffix(best_checkpoint.group(0), suffix='.index')
 
     checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
 
@@ -139,7 +151,7 @@ def gpu_memory_setup():
 
 
 def train(
-        model_wrapper: str,
+        model_wrapper: type[ModelWrapper],
         ds_args: dict,
         model_args: dict,
         callbacks_args: dict,
@@ -147,6 +159,9 @@ def train(
         data_preprocessed_dir: str
 ):
     """ Train and evaluate a model """
+
+    os.makedirs(settings.TFBOARD_DIR, exist_ok=True)
+    os.makedirs(settings.ARTIFACTS_DIR, exist_ok=True)
 
     gpu_memory_setup()
 
@@ -163,9 +178,10 @@ def train(
     ds_tr = pq_to_dataset(data_dir=tr_dir, **ds_args)
     ds_va = pq_to_dataset(data_dir=va_dir, **ds_args)
     ds_te = pq_to_dataset(data_dir=te_dir, **ds_args)
+    # ds_adapt = pq_to_dataset(data_dir=te_dir, cache=False, cycle_length=12)
 
     # Initialize the model generator
-    mdl = getattr(model, model_wrapper)(ds=ds_tr, **model_args)
+    mdl = model_wrapper(ds=ds_tr, **model_args)
 
     # Train and evaluate a model
     callbacks = create_callbacks(log_dir, save_dir, **callbacks_args)
@@ -185,7 +201,7 @@ def train(
     mdl.model.evaluate(ds_te)
 
     all_args = dict(
-        model_wrapper=model_wrapper,
+        model_wrapper=model_wrapper.__name__,
         model_args=model_args,
         dataset_args=ds_args,
         callbacks_args=callbacks_args,

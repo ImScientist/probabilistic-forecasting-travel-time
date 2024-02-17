@@ -25,7 +25,7 @@ callbacks_args = dict(
     histogram_freq=0,
     reduce_lr_patience=100,
     profile_batch=(10, 15),
-    verbose=0,
+    verbose=1,
     early_stopping_patience=250,
     period=10)
 
