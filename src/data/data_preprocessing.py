@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import logging
+import zipfile
 
 import numpy as np
 import pandas as pd
@@ -41,9 +42,14 @@ def train_val_test_split(
 def taxi_zones_summary(taxi_zones_path: str):
     """ Get a dataframe with center and area of each taxi zone """
 
+    abs_path = os.path.abspath(taxi_zones_path)
+    with zipfile.ZipFile(abs_path) as z:
+        shp_inner = next(f for f in z.namelist() if f.endswith('.shp'))
+
     df = (
         gpd
-        .read_file(taxi_zones_path)
+        # .read_file(os.path.abspath(taxi_zones_path))
+        .read_file(f'/vsizip/{abs_path}/{shp_inner}')
         .to_crs("epsg:4326")
         .rename(columns={'LocationID': 'location_id'})
         .assign(lon=lambda x: x.geometry.centroid.x,
