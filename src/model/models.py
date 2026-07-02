@@ -5,7 +5,6 @@ import json
 import logging
 
 import tensorflow as tf
-import tensorflow_addons as tfa
 import tensorflow_probability as tfp
 
 from abc import abstractmethod
@@ -30,10 +29,14 @@ def neg_log_likelihood(y, rv_y):
 
 
 def pinball_loss(quantiles: tuple = (.1, .3, .5, .7, .9)):
+    """ Average pinball loss across the given quantiles """
+
     tau = tf.constant(list(quantiles), dtype=dtype)
 
     def loss_fn(y, y_pred):
-        return tfa.losses.pinball_loss(y, y_pred, tau=tau)
+        delta = tf.cast(y, dtype) - y_pred
+        loss = tf.maximum(tau * delta, (tau - 1) * delta)
+        return tf.reduce_mean(loss, axis=-1)
 
     return loss_fn
 

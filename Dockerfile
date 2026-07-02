@@ -1,4 +1,4 @@
-FROM tensorflow/tensorflow:2.13.0-gpu-jupyter
+FROM tensorflow/tensorflow:2.18.0-gpu-jupyter
 
 RUN apt-get update && apt-get install  -y graphviz
 
@@ -9,6 +9,7 @@ WORKDIR /tf
 
 ENV UV_SYSTEM_PYTHON=1 \
     TF_CPP_MIN_LOG_LEVEL=2\
+    TF_USE_LEGACY_KERAS=1 \
     PYTHONPATH=/tf,/tf/src
 
 COPY requirements.txt .
