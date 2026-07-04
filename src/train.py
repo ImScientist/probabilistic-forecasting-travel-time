@@ -170,18 +170,17 @@ def train(
     log_dir = os.path.join(settings.TFBOARD_DIR, f'ex_{experiment_id:03d}')
     save_dir = os.path.join(settings.ARTIFACTS_DIR, f'ex_{experiment_id:03d}')
 
-    # Initialize the training, validation and test datasets
+    # Initialize the training and validation datasets; the test dataset is
+    # only needed for the final evaluation, so it's loaded later
     tr_dir = os.path.join(data_preprocessed_dir, 'train')
     va_dir = os.path.join(data_preprocessed_dir, 'validation')
     te_dir = os.path.join(data_preprocessed_dir, 'test')
 
-    ds_tr = pq_to_dataset(data_dir=tr_dir, **ds_args)
-    ds_va = pq_to_dataset(data_dir=va_dir, **ds_args)
-    ds_te = pq_to_dataset(data_dir=te_dir, **ds_args)
-    # ds_adapt = pq_to_dataset(data_dir=te_dir, cache=False, cycle_length=12)
+    ds_tr, feature_stats = pq_to_dataset(data_dir=tr_dir, **ds_args)
+    ds_va, _ = pq_to_dataset(data_dir=va_dir, **ds_args)
 
     # Initialize the model generator
-    mdl = model_wrapper(ds=ds_tr, **model_args)
+    mdl = model_wrapper(ds=ds_tr, feature_stats=feature_stats, **model_args)
 
     # Train and evaluate a model
     callbacks = create_callbacks(log_dir, save_dir, **callbacks_args)
@@ -195,6 +194,8 @@ def train(
     checkpoint_path = get_best_checkpoint(os.path.join(save_dir, 'checkpoints'))
     mdl.model.load_weights(checkpoint_path)
     mdl.save(save_dir)
+
+    ds_te, _ = pq_to_dataset(data_dir=te_dir, **ds_args)
 
     mdl.model.evaluate(ds_tr)
     mdl.model.evaluate(ds_va)

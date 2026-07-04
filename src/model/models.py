@@ -77,7 +77,7 @@ class ModelWrapper:
         self.custom_objects = None
 
     @abstractmethod
-    def _init_model(self, ds):
+    def _init_model(self, ds, feature_stats: dict = None):
         """ Initialize a model """
 
     def _load(self, load_dir: str):
@@ -132,6 +132,7 @@ class ModelPDF(ModelWrapper):
             batch_normalization: bool = False,
             distribution: str = 'lognormal',
             ds=None,
+            feature_stats: dict = None,
             load_dir: str = None,
             **kwargs
     ):
@@ -159,9 +160,9 @@ class ModelPDF(ModelWrapper):
         if load_dir is not None:
             self._load(load_dir)
         else:
-            self._init_model(ds)
+            self._init_model(ds, feature_stats)
 
-    def _init_model(self, ds):
+    def _init_model(self, ds, feature_stats: dict = None):
         """ Initialize a model where the second to last layer is used to
         parametrize a Normal/LogNormal distribution
         """
@@ -173,7 +174,8 @@ class ModelPDF(ModelWrapper):
             cat_str_feats=self.cat_str_feats,
             emb_int_feats=self.emb_int_feats,
             emb_str_feats=self.emb_str_feats,
-            embedding_dim=self.embedding_dim)
+            embedding_dim=self.embedding_dim,
+            feature_stats=feature_stats)
 
         x = tf.keras.layers.concatenate(encoded_features)
 
@@ -229,6 +231,7 @@ class ModelIQF(ModelWrapper):
             quantiles: tuple = (.05, .15, .3, .5, .7, .85, .95),
             quantile_range: tuple[float, float] = (.15, .85),
             ds=None,
+            feature_stats: dict = None,
             load_dir: str = None,
             **kwargs
     ):
@@ -255,9 +258,9 @@ class ModelIQF(ModelWrapper):
         if load_dir is not None:
             self._load(load_dir)
         else:
-            self._init_model(ds)
+            self._init_model(ds, feature_stats)
 
-    def _init_model(self, ds):
+    def _init_model(self, ds, feature_stats: dict = None):
         """ Initialize a model to predict multiple quantiles/percentiles that
         prevents the quantile crossing
         """
@@ -271,7 +274,8 @@ class ModelIQF(ModelWrapper):
             cat_str_feats=self.cat_str_feats,
             emb_int_feats=self.emb_int_feats,
             emb_str_feats=self.emb_str_feats,
-            embedding_dim=self.embedding_dim)
+            embedding_dim=self.embedding_dim,
+            feature_stats=feature_stats)
 
         x = tf.keras.layers.concatenate(encoded_features)
 

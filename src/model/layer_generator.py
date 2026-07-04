@@ -14,14 +14,25 @@ dtype = tf.float32
 logger = logging.getLogger(__name__)
 
 
-def get_normalization_layer(name, ds):
-    """ Create and adapt a normalization layer """
+def get_normalization_layer(name, ds, feature_stats: dict = None):
+    """ Create a normalization layer.
 
-    normalizer = tfkl.Normalization(axis=None)
+    If precomputed mean/variance for this feature are available in
+    `feature_stats`, use them directly. Otherwise fall back to `.adapt()`,
+    which requires a full pass over `ds`.
+    """
 
-    feature_ds = ds.map(lambda x, y: x[name])
+    stats = (feature_stats or {}).get(name)
 
-    normalizer.adapt(feature_ds)
+    if stats is not None:
+        normalizer = tfkl.Normalization(
+            axis=None, mean=stats['mean'], variance=stats['variance'])
+    else:
+        normalizer = tfkl.Normalization(axis=None)
+
+        feature_ds = ds.map(lambda x, y: x[name])
+
+        normalizer.adapt(feature_ds)
 
     return normalizer
 
@@ -72,7 +83,8 @@ def model_input_layer(
         cat_str_feats: list[str],
         emb_int_feats: list[str],
         emb_str_feats: list[str],
-        embedding_dim: int
+        embedding_dim: int,
+        feature_stats: dict = None
 ):
     """ Input layer from dataset """
 
@@ -80,7 +92,7 @@ def model_input_layer(
     preprocessed_inputs = []
 
     for feat in num_feats:
-        normalization_layer = get_normalization_layer(feat, ds)
+        normalization_layer = get_normalization_layer(feat, ds, feature_stats)
 
         numeric_col = tf.keras.Input(shape=(1,), name=feat, dtype='float32')
         normalized_numeric_col = normalization_layer(numeric_col)

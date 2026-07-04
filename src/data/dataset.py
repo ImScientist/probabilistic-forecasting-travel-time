@@ -32,6 +32,12 @@ def pq_to_dataset(
     cache:
     max_files: take all files if max_files=None
     take_size: take all elements of the dataset if take_size=-1
+
+    Returns
+    -------
+    ds: the tf.data.Dataset
+    feature_stats: {column: {'mean': ..., 'variance': ...}} for every
+        numeric feature, computed directly from the loaded data
     """
 
     columns = [*FLOAT_COLUMNS, *INT_COLUMNS, 'target']
@@ -48,6 +54,13 @@ def pq_to_dataset(
         for col in columns if col != 'target'}
     target = df['target'].to_numpy(dtype=np.float32)
 
+    # Mean/variance of the numeric features, computed once while the data is
+    # already in memory. This lets the model build its normalization layers
+    # without an extra `.adapt()` pass over the whole dataset.
+    feature_stats = {
+        col: {'mean': float(features[col].mean()), 'variance': float(features[col].var())}
+        for col in FLOAT_COLUMNS}
+
     ds = (
         tf.data.Dataset
         .from_tensor_slices((features, target))
@@ -62,4 +75,4 @@ def pq_to_dataset(
     if cache:
         ds = ds.cache()
 
-    return ds
+    return ds, feature_stats
