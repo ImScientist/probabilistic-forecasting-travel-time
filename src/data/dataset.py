@@ -36,8 +36,9 @@ def pq_to_dataset(
     Returns
     -------
     ds: the tf.data.Dataset
-    feature_stats: {column: {'mean': ..., 'variance': ...}} for every
-        numeric feature, computed directly from the loaded data
+    feature_stats: {column: {'mean': ..., 'variance': ...}} for every numeric
+        feature and {column: {'vocabulary': [...]}} for every categorical
+        (integer) feature, computed directly from the loaded data
     """
 
     columns = [*FLOAT_COLUMNS, *INT_COLUMNS, 'target']
@@ -54,12 +55,16 @@ def pq_to_dataset(
         for col in columns if col != 'target'}
     target = df['target'].to_numpy(dtype=np.float32)
 
-    # Mean/variance of the numeric features, computed once while the data is
-    # already in memory. This lets the model build its normalization layers
-    # without an extra `.adapt()` pass over the whole dataset.
+    # Mean/variance of the numeric features and vocabulary of the (low-
+    # cardinality) categorical features, computed once while the data is
+    # already in memory. This lets the model build its normalization and
+    # lookup layers without an extra `.adapt()` pass over the whole dataset.
     feature_stats = {
         col: {'mean': float(features[col].mean()), 'variance': float(features[col].var())}
         for col in FLOAT_COLUMNS}
+    feature_stats.update({
+        col: {'vocabulary': sorted(int(v) for v in np.unique(features[col]))}
+        for col in INT_COLUMNS})
 
     ds = (
         tf.data.Dataset

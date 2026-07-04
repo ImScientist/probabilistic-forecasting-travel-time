@@ -85,6 +85,7 @@ class ModelWrapper:
 
         model_dir = os.path.join(load_dir, 'model')
         attributes_path = os.path.join(load_dir, 'model_attributes.json')
+        feature_stats_path = os.path.join(load_dir, 'feature_stats.json')
 
         self.model = tf.keras.models.load_model(
             model_dir,
@@ -97,19 +98,28 @@ class ModelWrapper:
         for key, value in attributes.items():
             setattr(self, key, value)
 
+        # Load the normalization/vocabulary stats used to build the model's
+        # preprocessing layers (see `feature_stats` in `data/dataset.py`)
+        with open(feature_stats_path, 'r') as f:
+            self.feature_stats = json.load(f)
+
     def save(self, save_dir: str):
         """ Save the model and other class attributes """
 
         model_dir = os.path.join(save_dir, 'model')
         attributes_path = os.path.join(save_dir, 'model_attributes.json')
+        feature_stats_path = os.path.join(save_dir, 'feature_stats.json')
 
         attributes = {k: getattr(self, k) for k in vars(self).keys()
-                      if k not in ('model', 'custom_objects',)}
+                      if k not in ('model', 'custom_objects', 'feature_stats')}
 
         self.model.save(model_dir)  # save_traces=False
 
         with open(attributes_path, 'w') as f:
             json.dump(attributes, f, indent='\t')
+
+        with open(feature_stats_path, 'w') as f:
+            json.dump(self.feature_stats, f, indent='\t')
 
     @abstractmethod
     def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
@@ -156,6 +166,7 @@ class ModelPDF(ModelWrapper):
         self.distribution = distribution
         self.custom_objects = {
             'neg_log_likelihood': neg_log_likelihood}
+        self.feature_stats = feature_stats
 
         if load_dir is not None:
             self._load(load_dir)
@@ -254,6 +265,7 @@ class ModelIQF(ModelWrapper):
         self.quantile_range = quantile_range
         self.custom_objects = {
             'loss_fn': pinball_loss(quantiles=self.quantiles)}
+        self.feature_stats = feature_stats
 
         if load_dir is not None:
             self._load(load_dir)
