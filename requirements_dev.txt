@@ -1,0 +1,12 @@
+tensorflow_probability==0.25.0
+tf-keras==2.18.0
+click==8.4.2
+environs==15.0.1
+pandas==3.0.3
+geopandas==1.1.4
+fiona==1.10.1
+matplotlib==3.9.2
+graphviz==0.21
+pydot==4.0.1
+scikit-learn==1.9.0
+pyarrow==24.0.0

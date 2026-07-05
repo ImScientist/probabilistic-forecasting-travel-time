@@ -5,7 +5,6 @@ import json
 import logging
 
 import tensorflow as tf
-import tensorflow_addons as tfa
 import tensorflow_probability as tfp
 
 from abc import abstractmethod
@@ -30,10 +29,14 @@ def neg_log_likelihood(y, rv_y):
 
 
 def pinball_loss(quantiles: tuple = (.1, .3, .5, .7, .9)):
+    """ Average pinball loss across the given quantiles """
+
     tau = tf.constant(list(quantiles), dtype=dtype)
 
     def loss_fn(y, y_pred):
-        return tfa.losses.pinball_loss(y, y_pred, tau=tau)
+        delta = tf.cast(y, dtype) - y_pred
+        loss = tf.maximum(tau * delta, (tau - 1) * delta)
+        return tf.reduce_mean(loss, axis=-1)
 
     return loss_fn
 
@@ -74,7 +77,7 @@ class ModelWrapper:
         self.custom_objects = None
 
     @abstractmethod
-    def _init_model(self, ds):
+    def _init_model(self, ds, feature_stats: dict = None):
         """ Initialize a model """
 
     def _load(self, load_dir: str):
@@ -82,6 +85,7 @@ class ModelWrapper:
 
         model_dir = os.path.join(load_dir, 'model')
         attributes_path = os.path.join(load_dir, 'model_attributes.json')
+        feature_stats_path = os.path.join(load_dir, 'feature_stats.json')
 
         self.model = tf.keras.models.load_model(
             model_dir,
@@ -94,19 +98,28 @@ class ModelWrapper:
         for key, value in attributes.items():
             setattr(self, key, value)
 
+        # Load the normalization/vocabulary stats used to build the model's
+        # preprocessing layers (see `feature_stats` in `data/dataset.py`)
+        with open(feature_stats_path, 'r') as f:
+            self.feature_stats = json.load(f)
+
     def save(self, save_dir: str):
         """ Save the model and other class attributes """
 
         model_dir = os.path.join(save_dir, 'model')
         attributes_path = os.path.join(save_dir, 'model_attributes.json')
+        feature_stats_path = os.path.join(save_dir, 'feature_stats.json')
 
         attributes = {k: getattr(self, k) for k in vars(self).keys()
-                      if k not in ('model', 'custom_objects',)}
+                      if k not in ('model', 'custom_objects', 'feature_stats')}
 
         self.model.save(model_dir)  # save_traces=False
 
         with open(attributes_path, 'w') as f:
             json.dump(attributes, f, indent='\t')
+
+        with open(feature_stats_path, 'w') as f:
+            json.dump(self.feature_stats, f, indent='\t')
 
     @abstractmethod
     def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
@@ -129,6 +142,7 @@ class ModelPDF(ModelWrapper):
             batch_normalization: bool = False,
             distribution: str = 'lognormal',
             ds=None,
+            feature_stats: dict = None,
             load_dir: str = None,
             **kwargs
     ):
@@ -152,13 +166,14 @@ class ModelPDF(ModelWrapper):
         self.distribution = distribution
         self.custom_objects = {
             'neg_log_likelihood': neg_log_likelihood}
+        self.feature_stats = feature_stats
 
         if load_dir is not None:
             self._load(load_dir)
         else:
-            self._init_model(ds)
+            self._init_model(ds, feature_stats)
 
-    def _init_model(self, ds):
+    def _init_model(self, ds, feature_stats: dict = None):
         """ Initialize a model where the second to last layer is used to
         parametrize a Normal/LogNormal distribution
         """
@@ -170,7 +185,8 @@ class ModelPDF(ModelWrapper):
             cat_str_feats=self.cat_str_feats,
             emb_int_feats=self.emb_int_feats,
             emb_str_feats=self.emb_str_feats,
-            embedding_dim=self.embedding_dim)
+            embedding_dim=self.embedding_dim,
+            feature_stats=feature_stats)
 
         x = tf.keras.layers.concatenate(encoded_features)
 
@@ -226,6 +242,7 @@ class ModelIQF(ModelWrapper):
             quantiles: tuple = (.05, .15, .3, .5, .7, .85, .95),
             quantile_range: tuple[float, float] = (.15, .85),
             ds=None,
+            feature_stats: dict = None,
             load_dir: str = None,
             **kwargs
     ):
@@ -248,13 +265,14 @@ class ModelIQF(ModelWrapper):
         self.quantile_range = quantile_range
         self.custom_objects = {
             'loss_fn': pinball_loss(quantiles=self.quantiles)}
+        self.feature_stats = feature_stats
 
         if load_dir is not None:
             self._load(load_dir)
         else:
-            self._init_model(ds)
+            self._init_model(ds, feature_stats)
 
-    def _init_model(self, ds):
+    def _init_model(self, ds, feature_stats: dict = None):
         """ Initialize a model to predict multiple quantiles/percentiles that
         prevents the quantile crossing
         """
@@ -268,7 +286,8 @@ class ModelIQF(ModelWrapper):
             cat_str_feats=self.cat_str_feats,
             emb_int_feats=self.emb_int_feats,
             emb_str_feats=self.emb_str_feats,
-            embedding_dim=self.embedding_dim)
+            embedding_dim=self.embedding_dim,
+            feature_stats=feature_stats)
 
         x = tf.keras.layers.concatenate(encoded_features)
 

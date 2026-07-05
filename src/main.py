@@ -9,7 +9,7 @@ import warnings
 import train
 import settings
 import default_args
-from data import data_collection, data_preprocessing
+from data import data_collection, data_preprocessing, dataset
 from serve import prepare_servable_mean_std
 from model.models import ModelIQF, ModelPDF
 
@@ -51,6 +51,20 @@ def preprocess_data_fn(tr, va, te):
         source_dir=data_raw_dir,
         output_dir=data_preprocessed_dir,
         tr_va_te_frac=(tr, va, te))
+
+
+@cli.command("generate-feature-stats")
+def generate_feature_stats_fn():
+    """ Preprocess data and split it into a training, validation and test
+    datasets """
+
+    feature_stats_path = os.path.join(data_preprocessed_dir, 'feature_stats.json')
+
+    data_dir = os.path.join(data_preprocessed_dir, 'train')
+
+    feature_stats = dataset.compute_feature_stats(data_dir=data_dir)
+    with open(feature_stats_path, 'w') as f:
+        json.dump(feature_stats, f, indent='\t')
 
 
 @cli.command("train")

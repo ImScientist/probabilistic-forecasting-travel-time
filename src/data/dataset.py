@@ -1,11 +1,68 @@
-import os
+from __future__ import annotations
+
 import glob
 import logging
 
+import numpy as np
+import pandas as pd
+import pyarrow.parquet as pq
 import tensorflow as tf
-import tensorflow_io as tfio
 
 logger = logging.getLogger(__name__)
+
+INT_COLUMNS = ('passenger_count', 'vendor_id', 'weekday', 'month')
+STR_COLUMNS = ()
+FLOAT_COLUMNS = (
+    'time', 'trip_distance',
+    'pickup_lon', 'pickup_lat', 'pickup_area',
+    'dropoff_lon', 'dropoff_lat', 'dropoff_area')
+
+
+def _read_pq_files(data_dir: str, columns: list[str], max_files: int = None) -> pd.DataFrame:
+    """ Read and concatenate the parquet files in `data_dir` """
+
+    files = sorted(glob.glob(f'{data_dir}/*.parquet'))
+    files = files[:max_files]
+
+    return pq.read_table(files, columns=columns, use_threads=True).to_pandas()
+
+
+def compute_feature_stats(data_dir: str, max_files: int = None) -> dict:
+    """ Compute stats needed to build the model's preprocessing layers
+    without an `.adapt()` pass over the dataset, by scanning the
+    preprocessed parquet files in `data_dir`.
+
+    Parameters
+    ----------
+    data_dir:
+    max_files: take all files if max_files=None
+
+    Returns
+    -------
+    {column: {'mean': ..., 'variance': ...}} for every numeric feature and
+    {column: {'vocabulary': [...]}} for every categorical (integer or string) feature
+    """
+
+    columns = [*FLOAT_COLUMNS, *INT_COLUMNS, *STR_COLUMNS]
+
+    df = _read_pq_files(data_dir, columns, max_files)
+
+    features = {
+        col: df[col].to_numpy(
+            dtype=np.int32 if col in INT_COLUMNS else np.float32 if col in FLOAT_COLUMNS else str)
+        for col in columns}
+
+    feature_stats = {
+        col: {'mean': float(features[col].mean()), 'variance': float(features[col].var())}
+        for col in FLOAT_COLUMNS}
+    feature_stats.update({
+        col: {'vocabulary': sorted(int(v) for v in np.unique(features[col]))}
+        for col in INT_COLUMNS})
+    feature_stats.update({
+        col: {'vocabulary': sorted(str(v) for v in np.unique(features[col]))}
+        for col in STR_COLUMNS})
+
+    return feature_stats
 
 
 def pq_to_dataset(
@@ -13,7 +70,6 @@ def pq_to_dataset(
         batch_size: int,
         prefetch_size: int,
         cache: bool = True,
-        cycle_length: int = 2,
         max_files: int = None,
         take_size: int = -1
 ):
@@ -25,49 +81,30 @@ def pq_to_dataset(
     batch_size:
     prefetch_size:
     cache:
-    cycle_length: simultaneously opened files?
     max_files: take all files if max_files=None
     take_size: take all elements of the dataset if take_size=-1
+
+    Returns
+    -------
+    ds: the tf.data.Dataset
     """
 
-    columns_schema = {
-        'time': tf.TensorSpec(tf.TensorShape([])),
-        'trip_distance': tf.TensorSpec(tf.TensorShape([])),
+    columns = [*FLOAT_COLUMNS, *INT_COLUMNS, 'target']
 
-        'pickup_lon': tf.TensorSpec(tf.TensorShape([])),
-        'pickup_lat': tf.TensorSpec(tf.TensorShape([])),
-        'pickup_area': tf.TensorSpec(tf.TensorShape([])),
+    df = _read_pq_files(data_dir, columns, max_files)
 
-        'dropoff_lon': tf.TensorSpec(tf.TensorShape([])),
-        'dropoff_lat': tf.TensorSpec(tf.TensorShape([])),
-        'dropoff_area': tf.TensorSpec(tf.TensorShape([])),
-
-        'passenger_count': tf.TensorSpec(tf.TensorShape([]), tf.int32),
-        'vendor_id': tf.TensorSpec(tf.TensorShape([]), tf.int32),
-        'weekday': tf.TensorSpec(tf.TensorShape([]), tf.int32),
-        'month': tf.TensorSpec(tf.TensorShape([]), tf.int32),
-        'target': tf.TensorSpec(tf.TensorShape([]))}
-
-    # files = sorted(glob.glob('*.parquet', root_dir=data_dir))
-    # files = [os.path.join(data_dir, x) for x in files]
-    files = sorted(glob.glob(f'{data_dir}/*.parquet'))
-    files = files[:max_files]
+    features = {
+        col: df[col].to_numpy(dtype=np.int32 if col in INT_COLUMNS else np.float32)
+        for col in columns if col != 'target'}
+    target = df['target'].to_numpy(dtype=np.float32)
 
     ds = (
         tf.data.Dataset
-        .from_tensor_slices(files)
-        .interleave(
-            lambda f: tfio.IODataset.from_parquet(
-                filename=f,
-                columns=columns_schema),
-            num_parallel_calls=tf.data.AUTOTUNE,
-            block_length=batch_size,
-            cycle_length=cycle_length)
+        .from_tensor_slices((features, target))
         .take(take_size)
         .batch(batch_size)
-        .map(lambda x: ({k: tf.expand_dims(v, -1)
-                         for k, v in x.items() if k != 'target'},
-                        x['target'])))
+        .map(lambda x, y: (
+            {k: tf.expand_dims(v, -1) for k, v in x.items()}, y)))
 
     if prefetch_size is not None:
         ds = ds.prefetch(prefetch_size)

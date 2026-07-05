@@ -14,48 +14,67 @@ dtype = tf.float32
 logger = logging.getLogger(__name__)
 
 
-def get_normalization_layer(name, ds):
-    """ Create and adapt a normalization layer """
+def get_normalization_layer(name, ds, feature_stats: dict = None):
+    """ Create a normalization layer.
 
-    normalizer = tfkl.Normalization(axis=None)
+    If precomputed mean/variance for this feature are available in
+    `feature_stats`, use them directly. Otherwise fall back to `.adapt()`,
+    which requires a full pass over `ds`.
+    """
 
-    feature_ds = ds.map(lambda x, y: x[name])
+    stats = (feature_stats or {}).get(name)
 
-    normalizer.adapt(feature_ds)
+    if stats is not None:
+        normalizer = tfkl.Normalization(
+            axis=None, mean=stats['mean'], variance=stats['variance'])
+    else:
+        normalizer = tfkl.Normalization(axis=None)
+
+        feature_ds = ds.map(lambda x, y: x[name])
+
+        normalizer.adapt(feature_ds)
 
     return normalizer
 
 
-def get_category_encoding_layer(name, ds, dtype, max_tokens=None):
+def get_lookup_layer(name, ds, dtype, feature_stats: dict = None, max_tokens=None):
+    """ Create a lookup layer that turns strings/integer values into integer
+    indices.
+
+    If a precomputed vocabulary for this feature is available in
+    `feature_stats`, build the lookup directly from it. Otherwise fall back
+    to `.adapt()`, which requires a full pass over `ds`.
+    """
+
+    vocabulary = (feature_stats or {}).get(name, {}).get('vocabulary')
+    lookup_cls = tfkl.StringLookup if dtype == 'string' else tfkl.IntegerLookup
+
+    if vocabulary is not None:
+        index = lookup_cls(vocabulary=vocabulary, max_tokens=max_tokens)
+    else:
+        index = lookup_cls(max_tokens=max_tokens)
+
+        feature_ds = ds.map(lambda x, y: x[name])
+
+        index.adapt(feature_ds)
+
+    return index
+
+
+def get_category_encoding_layer(name, ds, dtype, feature_stats: dict = None, max_tokens=None):
     """ Create and adapt an encoding layer """
 
-    # Create a layer that turns strings/integer values into integer indices.
-    if dtype == 'string':
-        index = tfkl.StringLookup(max_tokens=max_tokens)
-    else:
-        index = tfkl.IntegerLookup(max_tokens=max_tokens)
-
-    feature_ds = ds.map(lambda x, y: x[name])
-
-    index.adapt(feature_ds)
+    index = get_lookup_layer(name, ds, dtype, feature_stats, max_tokens)
 
     encoder = tfkl.CategoryEncoding(num_tokens=index.vocabulary_size())
 
     return lambda x: encoder(index(x))
 
 
-def get_embedding_layer(name, ds, dtype, max_tokens=None, output_dim: int = 20):
+def get_embedding_layer(name, ds, dtype, feature_stats: dict = None, max_tokens=None, output_dim: int = 20):
     """ Create and adapt a lookup and embedding layer """
 
-    # Create a layer that turns strings/integer values into integer indices.
-    if dtype == 'string':
-        index = tfkl.StringLookup(max_tokens=max_tokens)
-    else:
-        index = tfkl.IntegerLookup(max_tokens=max_tokens)
-
-    feature_ds = ds.map(lambda x, y: x[name])
-
-    index.adapt(feature_ds)
+    index = get_lookup_layer(name, ds, dtype, feature_stats, max_tokens)
 
     embedding = tf.keras.layers.Embedding(
         index.vocabulary_size(), output_dim=output_dim, input_length=1)
@@ -72,7 +91,8 @@ def model_input_layer(
         cat_str_feats: list[str],
         emb_int_feats: list[str],
         emb_str_feats: list[str],
-        embedding_dim: int
+        embedding_dim: int,
+        feature_stats: dict = None
 ):
     """ Input layer from dataset """
 
@@ -80,7 +100,7 @@ def model_input_layer(
     preprocessed_inputs = []
 
     for feat in num_feats:
-        normalization_layer = get_normalization_layer(feat, ds)
+        normalization_layer = get_normalization_layer(feat, ds, feature_stats)
 
         numeric_col = tf.keras.Input(shape=(1,), name=feat, dtype='float32')
         normalized_numeric_col = normalization_layer(numeric_col)
@@ -89,7 +109,7 @@ def model_input_layer(
         preprocessed_inputs.append(normalized_numeric_col)
 
     for feat in cat_int_feats:
-        encoding_layer = get_category_encoding_layer(feat, ds, dtype='int32')
+        encoding_layer = get_category_encoding_layer(feat, ds, dtype='int32', feature_stats=feature_stats)
 
         cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='int32')
         encoded_cat_col = encoding_layer(cat_col)
@@ -98,7 +118,7 @@ def model_input_layer(
         preprocessed_inputs.append(encoded_cat_col)
 
     for feat in cat_str_feats:
-        encoding_layer = get_category_encoding_layer(feat, ds, dtype='string')
+        encoding_layer = get_category_encoding_layer(feat, ds, dtype='string', feature_stats=feature_stats)
 
         cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='string')
         encoded_cat_col = encoding_layer(cat_col)
@@ -108,7 +128,7 @@ def model_input_layer(
 
     for feat in emb_int_feats:
         embedding_layer = get_embedding_layer(
-            feat, ds, dtype='int32', output_dim=embedding_dim)
+            feat, ds, dtype='int32', feature_stats=feature_stats, output_dim=embedding_dim)
 
         cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='int32')
         embedded_cat_col = embedding_layer(cat_col)
@@ -118,7 +138,7 @@ def model_input_layer(
 
     for feat in emb_str_feats:
         embedding_layer = get_embedding_layer(
-            feat, ds, dtype='string', output_dim=embedding_dim)
+            feat, ds, dtype='string', feature_stats=feature_stats, output_dim=embedding_dim)
 
         cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='string')
         embedded_cat_col = embedding_layer(cat_col)

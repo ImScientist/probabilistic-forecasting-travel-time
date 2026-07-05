@@ -71,6 +71,18 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
   ```
   If you are worried about data drift over time you might need a different type of data splitting.
 
+
+- In addition, we also have to create a summary of each feature (the unique values of the categorical features and
+  mean/std of the numerical features):
+  ```shell
+  docker run -it --rm --runtime=nvidia --gpus all --name=experiment \
+    -v $DATA_DIR:/tf/data \
+    -v $TFBOARD_DIR:/tf/tfboard \
+    -v $ARTIFACTS_DIR:/tf/artifacts \
+    --env GPU_MEMORY_LIMIT=$GPU_MEMORY_LIMIT \
+    travel_time:latest python src/main.py generate-feature-stats
+  ```
+
 ## Train model
 
 - The json strings that you can provide overwrite the default arguments used by the model:
