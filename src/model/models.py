@@ -28,6 +28,33 @@ def neg_log_likelihood(y, rv_y):
     return -rv_y.log_prob(y)
 
 
+def build_optimizer(
+        learning_rate: float = 1e-3,
+        clipnorm: float = 1.0,
+        beta_2: float = 0.95,
+        lr_decay_steps: int = 1000,
+        lr_alpha: float = 0.05,
+):
+    """ Adam optimizer tuned for the NLL/pinball losses used here:
+    - `clipnorm` bounds gradient spikes (e.g. NLL blows up as a predicted
+      distribution's scale approaches its floor)
+    - a cosine decay schedule replaces relying on `ReduceLROnPlateau` for
+      shrinking the learning rate over time (combining the two double-decays
+      the learning rate, since `ReduceLROnPlateau` also rescales a schedule's
+      output rather than being a no-op)
+    - `beta_2` lower than Adam's 0.999 default so the second-moment estimate
+      adapts within the handful of steps/epoch caused by the large batch size
+    """
+
+    schedule = tf.keras.optimizers.schedules.CosineDecay(
+        initial_learning_rate=learning_rate,
+        decay_steps=lr_decay_steps,
+        alpha=lr_alpha)
+
+    return tf.optimizers.Adam(
+        learning_rate=schedule, clipnorm=clipnorm, beta_2=beta_2)
+
+
 def pinball_loss(quantiles: tuple = (.1, .3, .5, .7, .9)):
     """ Average pinball loss across the given quantiles """
 
@@ -141,6 +168,11 @@ class ModelPDF(ModelWrapper):
             dropout_min_layer_size: int = 12,
             batch_normalization: bool = False,
             distribution: str = 'lognormal',
+            learning_rate: float = 1e-3,
+            clipnorm: float = 1.0,
+            beta_2: float = 0.95,
+            lr_decay_steps: int = 1000,
+            lr_alpha: float = 0.05,
             ds=None,
             feature_stats: dict = None,
             load_dir: str = None,
@@ -164,6 +196,11 @@ class ModelPDF(ModelWrapper):
         assert distribution in ('normal', 'lognormal')
 
         self.distribution = distribution
+        self.learning_rate = learning_rate
+        self.clipnorm = clipnorm
+        self.beta_2 = beta_2
+        self.lr_decay_steps = lr_decay_steps
+        self.lr_alpha = lr_alpha
         self.custom_objects = {
             'neg_log_likelihood': neg_log_likelihood}
         self.feature_stats = feature_stats
@@ -215,7 +252,12 @@ class ModelPDF(ModelWrapper):
 
         self.model = tf.keras.Model(all_inputs, output)
         self.model.compile(
-            optimizer=tf.optimizers.Adam(learning_rate=0.01),
+            optimizer=build_optimizer(
+                learning_rate=self.learning_rate,
+                clipnorm=self.clipnorm,
+                beta_2=self.beta_2,
+                lr_decay_steps=self.lr_decay_steps,
+                lr_alpha=self.lr_alpha),
             loss=neg_log_likelihood)
 
     def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
@@ -241,6 +283,11 @@ class ModelIQF(ModelWrapper):
             batch_normalization: bool = False,
             quantiles: tuple = (.05, .15, .3, .5, .7, .85, .95),
             quantile_range: tuple[float, float] = (.15, .85),
+            learning_rate: float = 1e-3,
+            clipnorm: float = 1.0,
+            beta_2: float = 0.95,
+            lr_decay_steps: int = 1000,
+            lr_alpha: float = 0.05,
             ds=None,
             feature_stats: dict = None,
             load_dir: str = None,
@@ -263,6 +310,11 @@ class ModelIQF(ModelWrapper):
 
         self.quantiles = quantiles
         self.quantile_range = quantile_range
+        self.learning_rate = learning_rate
+        self.clipnorm = clipnorm
+        self.beta_2 = beta_2
+        self.lr_decay_steps = lr_decay_steps
+        self.lr_alpha = lr_alpha
         self.custom_objects = {
             'loss_fn': pinball_loss(quantiles=self.quantiles)}
         self.feature_stats = feature_stats
@@ -310,7 +362,12 @@ class ModelIQF(ModelWrapper):
 
         self.model = tf.keras.Model(all_inputs, output)
         self.model.compile(
-            optimizer=tf.optimizers.Adam(learning_rate=0.01),
+            optimizer=build_optimizer(
+                learning_rate=self.learning_rate,
+                clipnorm=self.clipnorm,
+                beta_2=self.beta_2,
+                lr_decay_steps=self.lr_decay_steps,
+                lr_alpha=self.lr_alpha),
             loss=pinball_loss(quantiles=self.quantiles))
 
     def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
