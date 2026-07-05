@@ -10,7 +10,7 @@ import tensorflow as tf
 from PIL import Image
 
 import settings
-from data.dataset import pq_to_dataset, compute_feature_stats
+from data.dataset import pq_to_dataset
 from model.models import ModelWrapper
 
 tfkc = tf.keras.callbacks

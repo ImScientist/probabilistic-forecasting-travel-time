@@ -10,6 +10,7 @@ import tensorflow as tf
 logger = logging.getLogger(__name__)
 
 INT_COLUMNS = ('passenger_count', 'vendor_id', 'weekday', 'month')
+STR_COLUMNS = ()
 FLOAT_COLUMNS = (
     'time', 'trip_distance',
     'pickup_lon', 'pickup_lat', 'pickup_area',
@@ -40,15 +41,16 @@ def compute_feature_stats(data_dir: str, max_files: int = None) -> dict:
     Returns
     -------
     {column: {'mean': ..., 'variance': ...}} for every numeric feature and
-    {column: {'vocabulary': [...]}} for every categorical (integer) feature
+    {column: {'vocabulary': [...]}} for every categorical (integer or string) feature
     """
 
-    columns = [*FLOAT_COLUMNS, *INT_COLUMNS]
+    columns = [*FLOAT_COLUMNS, *INT_COLUMNS, *STR_COLUMNS]
 
     df = _read_pq_files(data_dir, columns, max_files)
 
     features = {
-        col: df[col].to_numpy(dtype=np.int32 if col in INT_COLUMNS else np.float32)
+        col: df[col].to_numpy(
+            dtype=np.int32 if col in INT_COLUMNS else np.float32 if col in FLOAT_COLUMNS else str)
         for col in columns}
 
     feature_stats = {
@@ -57,6 +59,9 @@ def compute_feature_stats(data_dir: str, max_files: int = None) -> dict:
     feature_stats.update({
         col: {'vocabulary': sorted(int(v) for v in np.unique(features[col]))}
         for col in INT_COLUMNS})
+    feature_stats.update({
+        col: {'vocabulary': sorted(str(v) for v in np.unique(features[col]))}
+        for col in STR_COLUMNS})
 
     return feature_stats
 
