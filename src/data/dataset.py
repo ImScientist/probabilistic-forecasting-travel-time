@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import glob
 import logging
 
@@ -12,6 +14,51 @@ FLOAT_COLUMNS = (
     'time', 'trip_distance',
     'pickup_lon', 'pickup_lat', 'pickup_area',
     'dropoff_lon', 'dropoff_lat', 'dropoff_area')
+
+
+def _read_pq_files(data_dir: str, columns: list[str], max_files: int = None) -> pd.DataFrame:
+    """ Read and concatenate the parquet files in `data_dir` """
+
+    files = sorted(glob.glob(f'{data_dir}/*.parquet'))
+    files = files[:max_files]
+
+    return pd.concat(
+        (pd.read_parquet(f, columns=columns) for f in files),
+        ignore_index=True)
+
+
+def compute_feature_stats(data_dir: str, max_files: int = None) -> dict:
+    """ Compute stats needed to build the model's preprocessing layers
+    without an `.adapt()` pass over the dataset, by scanning the
+    preprocessed parquet files in `data_dir`.
+
+    Parameters
+    ----------
+    data_dir:
+    max_files: take all files if max_files=None
+
+    Returns
+    -------
+    {column: {'mean': ..., 'variance': ...}} for every numeric feature and
+    {column: {'vocabulary': [...]}} for every categorical (integer) feature
+    """
+
+    columns = [*FLOAT_COLUMNS, *INT_COLUMNS]
+
+    df = _read_pq_files(data_dir, columns, max_files)
+
+    features = {
+        col: df[col].to_numpy(dtype=np.int32 if col in INT_COLUMNS else np.float32)
+        for col in columns}
+
+    feature_stats = {
+        col: {'mean': float(features[col].mean()), 'variance': float(features[col].var())}
+        for col in FLOAT_COLUMNS}
+    feature_stats.update({
+        col: {'vocabulary': sorted(int(v) for v in np.unique(features[col]))}
+        for col in INT_COLUMNS})
+
+    return feature_stats
 
 
 def pq_to_dataset(
@@ -36,35 +83,16 @@ def pq_to_dataset(
     Returns
     -------
     ds: the tf.data.Dataset
-    feature_stats: {column: {'mean': ..., 'variance': ...}} for every numeric
-        feature and {column: {'vocabulary': [...]}} for every categorical
-        (integer) feature, computed directly from the loaded data
     """
 
     columns = [*FLOAT_COLUMNS, *INT_COLUMNS, 'target']
 
-    files = sorted(glob.glob(f'{data_dir}/*.parquet'))
-    files = files[:max_files]
-
-    df = pd.concat(
-        (pd.read_parquet(f, columns=columns) for f in files),
-        ignore_index=True)
+    df = _read_pq_files(data_dir, columns, max_files)
 
     features = {
         col: df[col].to_numpy(dtype=np.int32 if col in INT_COLUMNS else np.float32)
         for col in columns if col != 'target'}
     target = df['target'].to_numpy(dtype=np.float32)
-
-    # Mean/variance of the numeric features and vocabulary of the (low-
-    # cardinality) categorical features, computed once while the data is
-    # already in memory. This lets the model build its normalization and
-    # lookup layers without an extra `.adapt()` pass over the whole dataset.
-    feature_stats = {
-        col: {'mean': float(features[col].mean()), 'variance': float(features[col].var())}
-        for col in FLOAT_COLUMNS}
-    feature_stats.update({
-        col: {'vocabulary': sorted(int(v) for v in np.unique(features[col]))}
-        for col in INT_COLUMNS})
 
     ds = (
         tf.data.Dataset
@@ -80,4 +108,4 @@ def pq_to_dataset(
     if cache:
         ds = ds.cache()
 
-    return ds, feature_stats
+    return ds

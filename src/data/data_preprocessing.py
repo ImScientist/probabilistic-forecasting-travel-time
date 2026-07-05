@@ -90,8 +90,9 @@ def generate_features(df: pd.DataFrame, taxi_zones: pd.DataFrame) -> pd.DataFram
         'target': 'float32'}
 
     cond = lambda x: (
-        (x['dropoff_datetime'] - x['pickup_datetime'])
-        .dt.total_seconds().between(1, 6_000))
+        (x['dropoff_datetime'] - x['pickup_datetime']).dt.total_seconds().between(1, 6_000) &
+        x['trip_distance'].between(0, 50, inclusive='neither')
+    )
 
     df = (
         df

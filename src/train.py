@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import logging
 import tempfile
 import numpy as np
@@ -9,7 +10,7 @@ import tensorflow as tf
 from PIL import Image
 
 import settings
-from data.dataset import pq_to_dataset
+from data.dataset import pq_to_dataset, compute_feature_stats
 from model.models import ModelWrapper
 
 tfkc = tf.keras.callbacks
@@ -156,7 +157,7 @@ def train(
         model_args: dict,
         callbacks_args: dict,
         training_args: dict,
-        data_preprocessed_dir: str
+        data_preprocessed_dir: str,
 ):
     """ Train and evaluate a model """
 
@@ -176,8 +177,12 @@ def train(
     va_dir = os.path.join(data_preprocessed_dir, 'validation')
     te_dir = os.path.join(data_preprocessed_dir, 'test')
 
-    ds_tr, feature_stats = pq_to_dataset(data_dir=tr_dir, **ds_args)
-    ds_va, _ = pq_to_dataset(data_dir=va_dir, **ds_args)
+    feature_stats_path = os.path.join(data_preprocessed_dir, 'feature_stats.json')
+    with open(feature_stats_path, 'r') as f:
+        feature_stats = json.load(f)
+
+    ds_tr = pq_to_dataset(data_dir=tr_dir, **ds_args)
+    ds_va = pq_to_dataset(data_dir=va_dir, **ds_args)
 
     # Initialize the model generator
     mdl = model_wrapper(ds=ds_tr, feature_stats=feature_stats, **model_args)
@@ -195,7 +200,7 @@ def train(
     mdl.model.load_weights(checkpoint_path)
     mdl.save(save_dir)
 
-    ds_te, _ = pq_to_dataset(data_dir=te_dir, **ds_args)
+    ds_te = pq_to_dataset(data_dir=te_dir, **ds_args)
 
     mdl.model.evaluate(ds_tr)
     mdl.model.evaluate(ds_va)
