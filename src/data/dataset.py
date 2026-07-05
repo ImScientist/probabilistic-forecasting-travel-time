@@ -5,6 +5,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import tensorflow as tf
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,7 @@ def _read_pq_files(data_dir: str, columns: list[str], max_files: int = None) -> 
     files = sorted(glob.glob(f'{data_dir}/*.parquet'))
     files = files[:max_files]
 
-    return pd.concat(
-        (pd.read_parquet(f, columns=columns) for f in files),
-        ignore_index=True)
+    return pq.read_table(files, columns=columns, use_threads=True).to_pandas()
 
 
 def compute_feature_stats(data_dir: str, max_files: int = None) -> dict:
