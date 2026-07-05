@@ -70,6 +70,7 @@ def pq_to_dataset(
         batch_size: int,
         prefetch_size: int,
         cache: bool = True,
+        shuffle: bool = True,
         max_files: int = None,
         take_size: int = -1
 ):
@@ -81,6 +82,10 @@ def pq_to_dataset(
     batch_size:
     prefetch_size:
     cache:
+    shuffle: reshuffle the elements every epoch before batching. The source
+        parquet files are time-ordered, so without this every batch is a
+        contiguous time window and the loss oscillates with the data's
+        underlying seasonal structure.
     max_files: take all files if max_files=None
     take_size: take all elements of the dataset if take_size=-1
 
@@ -98,18 +103,18 @@ def pq_to_dataset(
         for col in columns if col != 'target'}
     target = df['target'].to_numpy(dtype=np.float32)
 
-    ds = (
-        tf.data.Dataset
-        .from_tensor_slices((features, target))
-        .take(take_size)
-        .batch(batch_size)
-        .map(lambda x, y: (
-            {k: tf.expand_dims(v, -1) for k, v in x.items()}, y)))
-
-    if prefetch_size is not None:
-        ds = ds.prefetch(prefetch_size)
+    ds = tf.data.Dataset.from_tensor_slices((features, target)).take(take_size)
 
     if cache:
         ds = ds.cache()
+
+    if shuffle:
+        ds = ds.shuffle(buffer_size=len(target), reshuffle_each_iteration=True)
+
+    ds = ds.batch(batch_size).map(lambda x, y: (
+        {k: tf.expand_dims(v, -1) for k, v in x.items()}, y))
+
+    if prefetch_size is not None:
+        ds = ds.prefetch(prefetch_size)
 
     return ds
