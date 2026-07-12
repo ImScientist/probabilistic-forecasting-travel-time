@@ -1,5 +1,4 @@
-from model.config import ModelConfig
-from model.features import FeatureGroups
+from model_config import ModelConfig, FeatureGroups
 
 # Kept as a plain dict (`.to_dict()`) so it stays json-serialisable for the
 # CLI overrides and logging; the model wrappers rebuild a ModelConfig from it.

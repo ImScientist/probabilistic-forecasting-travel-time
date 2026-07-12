@@ -4,7 +4,7 @@ import logging
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-from model.features import FeatureGroups
+from model_config import FeatureGroups
 
 tfkl = tf.keras.layers
 tfkc = tf.keras.callbacks

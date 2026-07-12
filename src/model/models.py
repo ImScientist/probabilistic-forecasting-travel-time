@@ -9,7 +9,7 @@ import tensorflow_probability as tfp
 
 from abc import abstractmethod
 from model import layer_generator
-from model.config import ModelConfig
+from model_config import ModelConfig
 from evaluate import (
     evaluate_parametrized_pdf_model,
     evaluate_percentile_model)
