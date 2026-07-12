@@ -1,18 +1,20 @@
-model_args = dict(
-    features=dict(
+from model.config import ModelConfig
+from model.features import FeatureGroups
+
+# Kept as a plain dict (`.to_dict()`) so it stays json-serialisable for the
+# CLI overrides and logging; the model wrappers rebuild a ModelConfig from it.
+model_args = ModelConfig(
+    features=FeatureGroups(
         num_feats=['trip_distance', 'time',
                    'pickup_lon', 'pickup_lat', 'pickup_area',
                    'dropoff_lon', 'dropoff_lat', 'dropoff_area'],
-        cat_int_feats=['passenger_count', 'vendor_id', 'weekday', 'month'],
-        cat_str_feats=[],
-        emb_int_feats=[],
-        emb_str_feats=[]),
+        cat_int_feats=['passenger_count', 'vendor_id', 'weekday', 'month']),
     embedding_dim=10,
     layer_sizes=(32, (32, 32), 8),
     l2=.001,
     dropout=0,
     dropout_min_layer_size=12,
-    batch_normalization=True)
+    batch_normalization=True).to_dict()
 
 ds_args = dict(
     batch_size=2 ** 16,  # 65_536

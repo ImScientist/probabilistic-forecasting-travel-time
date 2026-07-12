@@ -188,7 +188,7 @@ def train(
     # Initialize the model generator
     optimizer = tf.optimizers.Adam(learning_rate=0.001)
     mdl = model_wrapper(
-        ds=ds_tr, feature_stats=feature_stats, optimizer=optimizer, **model_args)
+        config=model_args, ds=ds_tr, feature_stats=feature_stats, optimizer=optimizer)
 
     # Train and evaluate a model
     callbacks = create_callbacks(log_dir, save_dir, **callbacks_args)
