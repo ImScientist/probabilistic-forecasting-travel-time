@@ -9,6 +9,7 @@ import tensorflow_probability as tfp
 
 from abc import abstractmethod
 from model import layer_generator
+from model.features import FeatureGroups
 from evaluate import (
     evaluate_parametrized_pdf_model,
     evaluate_percentile_model)
@@ -44,11 +45,7 @@ def pinball_loss(quantiles: tuple = (.1, .3, .5, .7, .9)):
 class ModelWrapper:
     def __init__(
             self,
-            num_feats: list[str],
-            cat_int_feats: list[str],
-            cat_str_feats: list[str],
-            emb_int_feats: list[str],
-            emb_str_feats: list[str],
+            features: FeatureGroups | dict = None,
             embedding_dim: int = 10,
             layer_sizes: tuple | list = None,
             l2: float = .001,
@@ -57,12 +54,9 @@ class ModelWrapper:
             batch_normalization: bool = False,
             **kwargs
     ):
-        # input feats
-        self.num_feats = num_feats
-        self.cat_int_feats = cat_int_feats
-        self.cat_str_feats = cat_str_feats
-        self.emb_int_feats = emb_int_feats
-        self.emb_str_feats = emb_str_feats
+        # input feats (accepts a FeatureGroups or a plain dict from json args;
+        # overwritten by `_load` when a stored model is loaded)
+        self.features = FeatureGroups.from_dict(features)
         self.embedding_dim = embedding_dim
 
         # nn parameters
@@ -95,8 +89,12 @@ class ModelWrapper:
         with open(attributes_path, 'r') as f:
             attributes = json.load(f)
 
+        # The feature-group columns are stored flat (see `save`); regroup them
+        # into a FeatureGroups and set everything else as plain attributes.
+        self.features = FeatureGroups.from_dict(attributes)
         for key, value in attributes.items():
-            setattr(self, key, value)
+            if key not in FeatureGroups.field_names():
+                setattr(self, key, value)
 
         # Load the normalization/vocabulary stats used to build the model's
         # preprocessing layers (see `feature_stats` in `data/dataset.py`)
@@ -111,7 +109,9 @@ class ModelWrapper:
         feature_stats_path = os.path.join(save_dir, 'feature_stats.json')
 
         attributes = {k: getattr(self, k) for k in vars(self).keys()
-                      if k not in ('model', 'custom_objects', 'feature_stats')}
+                      if k not in ('model', 'custom_objects', 'feature_stats', 'features')}
+        # store the feature groups flat, keeping the on-disk format unchanged
+        attributes.update(self.features.to_dict())
 
         self.model.save(model_dir)  # save_traces=False
 
@@ -129,11 +129,7 @@ class ModelWrapper:
 class ModelPDF(ModelWrapper):
     def __init__(
             self,
-            num_feats: list[str] = None,
-            cat_int_feats: list[str] = None,
-            cat_str_feats: list[str] = None,
-            emb_int_feats: list[str] = None,
-            emb_str_feats: list[str] = None,
+            features: FeatureGroups | dict = None,
             embedding_dim: int = 10,
             layer_sizes: tuple | list = None,
             l2: float = .001,
@@ -148,11 +144,7 @@ class ModelPDF(ModelWrapper):
     ):
 
         super(ModelPDF, self).__init__(
-            num_feats=num_feats,
-            cat_int_feats=cat_int_feats,
-            cat_str_feats=cat_str_feats,
-            emb_int_feats=emb_int_feats,
-            emb_str_feats=emb_str_feats,
+            features=features,
             embedding_dim=embedding_dim,
             layer_sizes=layer_sizes,
             l2=l2,
@@ -180,11 +172,7 @@ class ModelPDF(ModelWrapper):
 
         all_inputs, encoded_features = layer_generator.model_input_layer(
             ds=ds,
-            num_feats=self.num_feats,
-            cat_int_feats=self.cat_int_feats,
-            cat_str_feats=self.cat_str_feats,
-            emb_int_feats=self.emb_int_feats,
-            emb_str_feats=self.emb_str_feats,
+            features=self.features,
             embedding_dim=self.embedding_dim,
             feature_stats=feature_stats)
 
@@ -228,11 +216,7 @@ class ModelPDF(ModelWrapper):
 class ModelIQF(ModelWrapper):
     def __init__(
             self,
-            num_feats: list[str] = None,
-            cat_int_feats: list[str] = None,
-            cat_str_feats: list[str] = None,
-            emb_int_feats: list[str] = None,
-            emb_str_feats: list[str] = None,
+            features: FeatureGroups | dict = None,
             embedding_dim: int = 10,
             layer_sizes: tuple | list = None,
             l2: float = .001,
@@ -247,11 +231,7 @@ class ModelIQF(ModelWrapper):
             **kwargs
     ):
         super(ModelIQF, self).__init__(
-            num_feats=num_feats,
-            cat_int_feats=cat_int_feats,
-            cat_str_feats=cat_str_feats,
-            emb_int_feats=emb_int_feats,
-            emb_str_feats=emb_str_feats,
+            features=features,
             embedding_dim=embedding_dim,
             layer_sizes=layer_sizes,
             l2=l2,
@@ -281,11 +261,7 @@ class ModelIQF(ModelWrapper):
 
         all_inputs, encoded_features = layer_generator.model_input_layer(
             ds,
-            num_feats=self.num_feats,
-            cat_int_feats=self.cat_int_feats,
-            cat_str_feats=self.cat_str_feats,
-            emb_int_feats=self.emb_int_feats,
-            emb_str_feats=self.emb_str_feats,
+            features=self.features,
             embedding_dim=self.embedding_dim,
             feature_stats=feature_stats)
 
