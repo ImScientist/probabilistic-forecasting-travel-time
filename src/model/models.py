@@ -71,7 +71,7 @@ class ModelWrapper:
         self.custom_objects = None
 
     @abstractmethod
-    def _init_model(self, ds, feature_stats: dict = None):
+    def _init_model(self, ds, feature_stats: dict = None, optimizer=None):
         """ Initialize a model """
 
     def _load(self, load_dir: str):
@@ -136,6 +136,7 @@ class ModelPDF(ModelWrapper):
             dropout_min_layer_size: int = 12,
             batch_normalization: bool = False,
             distribution: str = 'lognormal',
+            optimizer=None,
             ds=None,
             feature_stats: dict = None,
             load_dir: str = None,
@@ -162,9 +163,9 @@ class ModelPDF(ModelWrapper):
         if load_dir is not None:
             self._load(load_dir)
         else:
-            self._init_model(ds, feature_stats)
+            self._init_model(ds, feature_stats, optimizer)
 
-    def _init_model(self, ds, feature_stats: dict = None):
+    def _init_model(self, ds, feature_stats: dict = None, optimizer=None):
         """ Initialize a model where the second to last layer is used to
         parametrize a Normal/LogNormal distribution
         """
@@ -200,9 +201,12 @@ class ModelPDF(ModelWrapper):
             name=self.distribution
         )(x)
 
+        if optimizer is None:
+            optimizer = tf.optimizers.Adam(learning_rate=0.001)
+
         self.model = tf.keras.Model(all_inputs, output)
         self.model.compile(
-            optimizer=tf.optimizers.Adam(learning_rate=0.01),
+            optimizer=optimizer,
             loss=neg_log_likelihood)
 
     def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
@@ -224,6 +228,7 @@ class ModelIQF(ModelWrapper):
             batch_normalization: bool = False,
             quantiles: tuple = (.05, .15, .3, .5, .7, .85, .95),
             quantile_range: tuple[float, float] = (.15, .85),
+            optimizer=None,
             ds=None,
             feature_stats: dict = None,
             load_dir: str = None,
@@ -249,9 +254,9 @@ class ModelIQF(ModelWrapper):
         if load_dir is not None:
             self._load(load_dir)
         else:
-            self._init_model(ds, feature_stats)
+            self._init_model(ds, feature_stats, optimizer)
 
-    def _init_model(self, ds, feature_stats: dict = None):
+    def _init_model(self, ds, feature_stats: dict = None, optimizer=None):
         """ Initialize a model to predict multiple quantiles/percentiles that
         prevents the quantile crossing
         """
@@ -283,9 +288,12 @@ class ModelIQF(ModelWrapper):
         # monotonically increasing outputs
         output = tfkl.Lambda(lambda y: tf.cumsum(y, axis=-1))(x)
 
+        if optimizer is None:
+            optimizer = tf.optimizers.Adam(learning_rate=0.001)
+
         self.model = tf.keras.Model(all_inputs, output)
         self.model.compile(
-            optimizer=tf.optimizers.Adam(learning_rate=0.001),
+            optimizer=optimizer,
             loss=pinball_loss(quantiles=self.quantiles))
 
     def evaluate_model(self, ds, log_dir: str, log_data: dict = None):

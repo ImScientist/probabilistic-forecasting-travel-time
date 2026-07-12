@@ -186,7 +186,9 @@ def train(
     ds_va = pq_to_dataset(data_dir=va_dir, **ds_args)
 
     # Initialize the model generator
-    mdl = model_wrapper(ds=ds_tr, feature_stats=feature_stats, **model_args)
+    optimizer = tf.optimizers.Adam(learning_rate=0.001)
+    mdl = model_wrapper(
+        ds=ds_tr, feature_stats=feature_stats, optimizer=optimizer, **model_args)
 
     # Train and evaluate a model
     callbacks = create_callbacks(log_dir, save_dir, **callbacks_args)
