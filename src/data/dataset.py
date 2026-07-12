@@ -70,10 +70,18 @@ def pq_to_dataset(
         batch_size: int,
         prefetch_size: int,
         cache: bool = True,
+        shuffle: bool = True,
         max_files: int = None,
         take_size: int = -1
 ):
     """ Make dataset from a directory with parquet files
+
+    The whole (preprocessed) dataset fits in memory, so instead of letting
+    `tf.data` slice it row-by-row (which is orders of magnitude slower for
+    tens of millions of rows) we batch it in NumPy first: every element of
+    the resulting dataset is already a full `(batch_size, 1)` batch. The last
+    partial batch is appended separately. The `.reshape(..., 1)` also replaces
+    the per-batch `expand_dims` map that the row-sliced version needed.
 
     Parameters
     ----------
@@ -81,13 +89,16 @@ def pq_to_dataset(
     batch_size:
     prefetch_size:
     cache:
+    shuffle: permute the batch order at every epoch
     max_files: take all files if max_files=None
-    take_size: take all elements of the dataset if take_size=-1
+    take_size: take all rows of the dataset if take_size=-1
 
     Returns
     -------
     ds: the tf.data.Dataset
     """
+
+    logger.info(f'Load dataset from {data_dir}')
 
     columns = [*FLOAT_COLUMNS, *INT_COLUMNS, 'target']
 
@@ -98,18 +109,38 @@ def pq_to_dataset(
         for col in columns if col != 'target'}
     target = df['target'].to_numpy(dtype=np.float32)
 
-    ds = (
-        tf.data.Dataset
-        .from_tensor_slices((features, target))
-        .take(take_size)
-        .batch(batch_size)
-        .map(lambda x, y: (
-            {k: tf.expand_dims(v, -1) for k, v in x.items()}, y)))
+    n_rows = target.shape[0] if take_size == -1 else min(take_size, target.shape[0])
 
-    if prefetch_size is not None:
-        ds = ds.prefetch(prefetch_size)
+    # Group the rows into full batches. Each feature batch has the trailing
+    # unit axis the model expects, shape (batch_size, 1); the target batch
+    # stays 1-D, shape (batch_size,), matching the row-sliced version.
+    n_full = (n_rows // batch_size) * batch_size
+    n_batches = n_full // batch_size
+
+    features_b = {
+        col: arr[:n_full].reshape(n_batches, batch_size, 1)
+        for col, arr in features.items()}
+    target_b = target[:n_full].reshape(n_batches, batch_size)
+
+    ds = tf.data.Dataset.from_tensor_slices((features_b, target_b))
+
+    # Append the remaining rows as a final, smaller batch.
+    if n_rows > n_full:
+        features_r = {
+            col: arr[n_full:n_rows].reshape(1, n_rows - n_full, 1)
+            for col, arr in features.items()}
+        target_r = target[n_full:n_rows].reshape(1, n_rows - n_full)
+        ds = ds.concatenate(
+            tf.data.Dataset.from_tensor_slices((features_r, target_r)))
 
     if cache:
         ds = ds.cache()
+
+    if shuffle:
+        # buffer >= number of batches -> a full permutation of the batch order
+        ds = ds.shuffle(n_batches + 1, reshuffle_each_iteration=True)
+
+    if prefetch_size is not None:
+        ds = ds.prefetch(prefetch_size)
 
     return ds
