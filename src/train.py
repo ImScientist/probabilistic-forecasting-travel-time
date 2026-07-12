@@ -181,6 +181,7 @@ def train(
     with open(feature_stats_path, 'r') as f:
         feature_stats = json.load(f)
 
+    logger.info('Create training/validation datasets...')
     ds_tr = pq_to_dataset(data_dir=tr_dir, **ds_args)
     ds_va = pq_to_dataset(data_dir=va_dir, **ds_args)
 
@@ -192,6 +193,7 @@ def train(
 
     log_model_architecture(mdl.model, log_dir)
 
+    logger.info('Model training...')
     mdl.model.fit(
         ds_tr, validation_data=ds_va, callbacks=callbacks, **training_args)
 
@@ -200,8 +202,10 @@ def train(
     mdl.model.load_weights(checkpoint_path)
     mdl.save(save_dir)
 
-    ds_te = pq_to_dataset(data_dir=te_dir, **ds_args)
+    # No shuffling for the test set
+    ds_te = pq_to_dataset(data_dir=te_dir, **{**ds_args, 'shuffle': False})
 
+    logger.info('Model evaluation...')
     mdl.model.evaluate(ds_tr)
     mdl.model.evaluate(ds_va)
     mdl.model.evaluate(ds_te)

@@ -14,11 +14,12 @@ model_args = dict(
     batch_normalization=True)
 
 ds_args = dict(
-    batch_size=2 ** 20,  # 1_048_576
+    batch_size=2 ** 16,  # 65_536
     prefetch_size=-1,  # tf.data.AUTOTUNE
     cache=True,
+    shuffle=True,  # permute the batch order at every epoch
     max_files=None,  # max number of files to use when loading a ds from dir
-    take_size=-1)  # max number of elements in the dataset
+    take_size=-1)  # max number of rows in the dataset
 
 callbacks_args = dict(
     histogram_freq=0,
