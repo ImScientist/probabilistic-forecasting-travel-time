@@ -76,12 +76,7 @@ def pq_to_dataset(
 ):
     """ Make dataset from a directory with parquet files
 
-    The whole (preprocessed) dataset fits in memory, so instead of letting
-    `tf.data` slice it row-by-row (which is orders of magnitude slower for
-    tens of millions of rows) we batch it in NumPy first: every element of
-    the resulting dataset is already a full `(batch_size, 1)` batch. The last
-    partial batch is appended separately. The `.reshape(..., 1)` also replaces
-    the per-batch `expand_dims` map that the row-sliced version needed.
+    The whole (preprocessed) dataset fits in memory.
 
     Parameters
     ----------
@@ -114,8 +109,8 @@ def pq_to_dataset(
     # Group the rows into full batches. Each feature batch has the trailing
     # unit axis the model expects, shape (batch_size, 1); the target batch
     # stays 1-D, shape (batch_size,), matching the row-sliced version.
-    n_full = (n_rows // batch_size) * batch_size
-    n_batches = n_full // batch_size
+    n_batches = n_rows // batch_size
+    n_full = n_batches * batch_size
 
     features_b = {
         col: arr[:n_full].reshape(n_batches, batch_size, 1)

@@ -310,7 +310,7 @@ class ModelIQF(ModelWrapper):
 
         self.model = tf.keras.Model(all_inputs, output)
         self.model.compile(
-            optimizer=tf.optimizers.Adam(learning_rate=0.01),
+            optimizer=tf.optimizers.Adam(learning_rate=0.001),
             loss=pinball_loss(quantiles=self.quantiles))
 
     def evaluate_model(self, ds, log_dir: str, log_data: dict = None):
