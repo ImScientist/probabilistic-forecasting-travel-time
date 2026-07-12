@@ -89,12 +89,11 @@ class ModelWrapper:
         with open(attributes_path, 'r') as f:
             attributes = json.load(f)
 
-        # The feature-group columns are stored flat (see `save`); regroup them
-        # into a FeatureGroups and set everything else as plain attributes.
-        self.features = FeatureGroups.from_dict(attributes)
+        # The feature groups are stored as a nested "features" object (see
+        # `save`); rebuild the dataclass and set everything else as attributes.
+        self.features = FeatureGroups.from_dict(attributes.pop('features', None))
         for key, value in attributes.items():
-            if key not in FeatureGroups.field_names():
-                setattr(self, key, value)
+            setattr(self, key, value)
 
         # Load the normalization/vocabulary stats used to build the model's
         # preprocessing layers (see `feature_stats` in `data/dataset.py`)
@@ -110,8 +109,8 @@ class ModelWrapper:
 
         attributes = {k: getattr(self, k) for k in vars(self).keys()
                       if k not in ('model', 'custom_objects', 'feature_stats', 'features')}
-        # store the feature groups flat, keeping the on-disk format unchanged
-        attributes.update(self.features.to_dict())
+        # store the feature groups as a nested "features" object
+        attributes['features'] = self.features.to_dict()
 
         self.model.save(model_dir)  # save_traces=False
 
