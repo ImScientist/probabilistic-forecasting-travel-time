@@ -202,9 +202,7 @@ def train(
     mdl.model.load_weights(checkpoint_path)
     mdl.save(save_dir)
 
-    # No shuffling for the test set: `evaluate_model` iterates the dataset
-    # twice (once for the targets, once for the predictions) and relies on a
-    # stable order to pair them.
+    # No shuffling for the test set
     ds_te = pq_to_dataset(data_dir=te_dir, **{**ds_args, 'shuffle': False})
 
     logger.info('Model evaluation...')
