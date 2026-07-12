@@ -4,6 +4,8 @@ import logging
 import tensorflow as tf
 import tensorflow_probability as tfp
 
+from config import FeatureGroups
+
 tfkl = tf.keras.layers
 tfkc = tf.keras.callbacks
 tfd = tfp.distributions
@@ -86,11 +88,7 @@ def get_embedding_layer(name, ds, dtype, feature_stats: dict = None, max_tokens=
 
 def model_input_layer(
         ds,
-        num_feats: list[str],
-        cat_int_feats: list[str],
-        cat_str_feats: list[str],
-        emb_int_feats: list[str],
-        emb_str_feats: list[str],
+        features: FeatureGroups,
         embedding_dim: int,
         feature_stats: dict = None
 ):
@@ -99,7 +97,7 @@ def model_input_layer(
     inputs = []
     preprocessed_inputs = []
 
-    for feat in num_feats:
+    for feat in features.num_feats:
         normalization_layer = get_normalization_layer(feat, ds, feature_stats)
 
         numeric_col = tf.keras.Input(shape=(1,), name=feat, dtype='float32')
@@ -108,7 +106,7 @@ def model_input_layer(
         inputs.append(numeric_col)
         preprocessed_inputs.append(normalized_numeric_col)
 
-    for feat in cat_int_feats:
+    for feat in features.cat_int_feats:
         encoding_layer = get_category_encoding_layer(feat, ds, dtype='int32', feature_stats=feature_stats)
 
         cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='int32')
@@ -117,7 +115,7 @@ def model_input_layer(
         inputs.append(cat_col)
         preprocessed_inputs.append(encoded_cat_col)
 
-    for feat in cat_str_feats:
+    for feat in features.cat_str_feats:
         encoding_layer = get_category_encoding_layer(feat, ds, dtype='string', feature_stats=feature_stats)
 
         cat_col = tf.keras.Input(shape=(1,), name=feat, dtype='string')
@@ -126,7 +124,7 @@ def model_input_layer(
         inputs.append(cat_col)
         preprocessed_inputs.append(encoded_cat_col)
 
-    for feat in emb_int_feats:
+    for feat in features.emb_int_feats:
         embedding_layer = get_embedding_layer(
             feat, ds, dtype='int32', feature_stats=feature_stats, output_dim=embedding_dim)
 
@@ -136,7 +134,7 @@ def model_input_layer(
         inputs.append(cat_col)
         preprocessed_inputs.append(embedded_cat_col)
 
-    for feat in emb_str_feats:
+    for feat in features.emb_str_feats:
         embedding_layer = get_embedding_layer(
             feat, ds, dtype='string', feature_stats=feature_stats, output_dim=embedding_dim)
 
