@@ -1,0 +1,6 @@
+apiVersion: v2
+name: travel-time
+description: TensorFlow Serving deployment of the probabilistic travel-time model (model_mean_std)
+type: application
+version: 0.1.0
+appVersion: "2.18.0"

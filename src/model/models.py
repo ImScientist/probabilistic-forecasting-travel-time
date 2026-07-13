@@ -48,8 +48,7 @@ class ModelWrapper:
             config: ModelConfig | dict = None,
             **kwargs
     ):
-        # architecture config (accepts a ModelConfig or a plain dict from json
-        # args; overwritten by `_load` when a stored model is loaded)
+        # architecture config; overwritten by `_load` when a stored model is loaded
         self.config = ModelConfig.from_dict(config)
 
         # defined in the child class
@@ -75,8 +74,6 @@ class ModelWrapper:
         with open(attributes_path, 'r') as f:
             attributes = json.load(f)
 
-        # The architecture config is stored as a nested "config" object (see
-        # `save`); rebuild the dataclass and set everything else as attributes.
         self.config = ModelConfig.from_dict(attributes.pop('config', None))
         for key, value in attributes.items():
             setattr(self, key, value)

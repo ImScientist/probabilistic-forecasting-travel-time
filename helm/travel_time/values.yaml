@@ -1,0 +1,67 @@
+image:
+  repository: travel_time_serving
+  # The experiment whose servable was baked into the image (see Dockerfile.serving).
+  tag: ex_022
+  # Local clusters (kind/minikube) have no registry to pull from: load the image
+  # into the node with `kind load docker-image` / `minikube image load` and keep
+  # this at Never so the kubelet does not try to fetch it.
+  pullPolicy: Never
+
+modelName: model_mean_std
+
+# Fixed replica count. Ignored when autoscaling.enabled is true.
+replicaCount: 3
+
+service:
+  type: NodePort
+  restPort: 8501
+  grpcPort: 8500
+  # Only used when type is NodePort. Reachable at <node-ip>:30851.
+  restNodePort: 30851
+
+# TF Serving is CPU-bound here and single-process, so throughput scales with
+# replicas. Requests must be set for the HPA to have a percentage to work off.
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 60
+
+# Server-side batching. The biggest single throughput win for a small MLP:
+# it merges concurrent requests into one graph execution, amortizing the
+# per-call overhead that otherwise dominates.
+batching:
+  enabled: true
+  # Upper bound on rows per fused batch.
+  maxBatchSize: 128
+  # How long a partial batch waits for company. This is added directly to
+  # tail latency, so it is the batching throughput/latency dial.
+  batchTimeoutMicros: 5000
+  maxEnqueuedBatches: 1000000
+  # Keep in the same ballpark as the CPU limit; more threads than cores just
+  # adds contention.
+  numBatchThreads: 2
+
+# Intra/inter-op pools. Left at the CPU limit so a pod does not try to spin up
+# one thread per host core while capped at 2 by cgroups.
+tensorflow:
+  intraOpParallelism: 2
+  interOpParallelism: 2
+  restApiNumThreads: 16
+  restApiTimeoutMs: 30000
+
+# Exposes /monitoring/prometheus/metrics on the REST port.
+monitoring:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

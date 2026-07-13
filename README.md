@@ -160,13 +160,13 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
       ```
     - Next we spawn the tf serving container and mount to it the newly created servable:
       ```shell
-      MODEL_DIR=$ARTIFACTS_DIR/ex_000/model_mean_std
+      SERVABLE_DIR=$ARTIFACTS_DIR/ex_000/model_mean_std
       
       docker run -t --rm -p 8501:8501 \
           --name=serving \
-          -v "$MODEL_DIR:/models/model_mean_std/1" \
+          -v "$SERVABLE_DIR:/models/model_mean_std/1" \
           -e MODEL_NAME=model_mean_std \
-          tensorflow/serving:2.13.0
+          tensorflow/serving:2.18.0
       ```
 
     - Test exported model predictions of the travel-time mean:
@@ -181,3 +181,41 @@ in the [nyc.gov](https://www1.nyc.gov/site/tlc/about/tlc-trip-record-data.page) 
       -H 'Content-type: application/json' \
       -d '{"signature_name": "std", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
       ```
+
+## Scale the model (Kubernetes / Helm)
+
+A single `tensorflow/serving` container is one process on one host, so it does not scale on its own. To handle a higher
+influx of prediction requests we replicate it behind a Service and let a HorizontalPodAutoscaler add pods under load.
+Two things make each pod go further:
+
+- **Server-side batching** (`--enable_batching`): concurrent requests are fused into a single graph execution. For a
+  small MLP like this one the per-request overhead dominates the actual matrix multiply, so this is the largest single
+  throughput win. `batching.batchTimeoutMicros` is the dial: a larger value fills fuller batches (more throughput) at
+  the cost of added tail latency.
+- **gRPC instead of REST** (port 8500, exposed by the chart): avoids JSON parsing per request. Worth it for
+  high-volume clients; the REST endpoint stays available for `curl`/browser use.
+
+The model is baked into an immutable image, so a pod carries the model with it and has no shared-storage dependency:
+
+```shell
+docker build -f Dockerfile.serving \
+  --build-arg SERVABLE_DIR=ex_000/model_mean_std \
+  -t travel_time_serving:ex_000 \
+  $ARTIFACTS_DIR
+
+docker run -t --rm -p 8501:8501 \
+  --name=serving \
+  travel_time_serving:ex_000
+
+# make the image visible to the local cluster (kind shown; minikube: `minikube image load`)
+kind load docker-image travel_time_serving:ex_022
+
+helm install tt helm/travel_time
+```
+
+The chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
+an HPA (2-10 pods at 60% CPU, needs `metrics-server`). Prediction requests then work exactly as above, against the
+NodePort printed by `helm install`.
+
+Key knobs in `helm/travel_time/values.yaml`: `autoscaling.*`, `batching.*`, `resources`, and `tensorflow.*` (the
+intra/inter-op thread pools, kept in line with the CPU limit so a pod does not spawn one thread per host core).
