@@ -1,0 +1,23 @@
+# Bakes a servable produced by `python src/main.py prepare-servable` into an
+# immutable tensorflow/serving image, so the serving pods carry the model with
+# them and have no storage dependency to scale out against.
+#
+# The build context is $ARTIFACTS_DIR, and SERVABLE_DIR is relative to it:
+#
+#   docker build -f Dockerfile.serving \
+#     --build-arg SERVABLE_DIR=ex_000/model_mean_std \
+#     --build-arg MODEL_VERSION=1 \
+#     -t travel_time_serving:ex_000 \
+#     $ARTIFACTS_DIR
+FROM tensorflow/serving:2.18.0
+
+# SavedModel directory, relative to the build context ($ARTIFACTS_DIR).
+ARG SERVABLE_DIR
+
+# Version served.
+ARG MODEL_VERSION=1
+
+COPY ${SERVABLE_DIR} /models/model_mean_std/${MODEL_VERSION}
+
+ENV MODEL_BASE_PATH=/models
+ENV MODEL_NAME=model_mean_std

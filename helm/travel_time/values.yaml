@@ -1,7 +1,7 @@
 image:
   repository: travel_time_serving
   # The experiment whose servable was baked into the image (see Dockerfile.serving).
-  tag: ex_022
+  tag: ex_000
   # Local clusters (kind/minikube) have no registry to pull from: load the image
   # into the node with `kind load docker-image` / `minikube image load` and keep
   # this at Never so the kubelet does not try to fetch it.
@@ -13,6 +13,7 @@ modelName: model_mean_std
 replicaCount: 3
 
 service:
+  enabled: false
   type: NodePort
   restPort: 8501
   grpcPort: 8500
@@ -30,7 +31,7 @@ resources:
     memory: 1Gi
 
 autoscaling:
-  enabled: true
+  enabled: false
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 60

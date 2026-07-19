@@ -203,15 +203,23 @@ docker build -f Dockerfile.serving \
   -t travel_time_serving:ex_000 \
   $ARTIFACTS_DIR
 
+# Test with
 docker run -t --rm -p 8501:8501 \
   --name=serving \
   travel_time_serving:ex_000
 
 # make the image visible to the local cluster (kind shown; minikube: `minikube image load`)
-kind load docker-image travel_time_serving:ex_022
-
-helm install tt helm/travel_time
+#kind load docker-image travel_time_serving:ex_000
+#
+#helm install tt helm/travel_time
 ```
+
+- Create helm chart:
+  ```shell
+  kubectl create namespace development
+  helm install --namespace development tt-chart helm/travel_time
+  helm uninstall --namespace development tt-chart
+  ```
 
 The chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
 an HPA (2-10 pods at 60% CPU, needs `metrics-server`). Prediction requests then work exactly as above, against the
