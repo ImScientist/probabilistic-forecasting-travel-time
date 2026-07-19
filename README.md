@@ -262,6 +262,7 @@ NodePort printed by `helm install`.
 
 - Add a ServiceMonitor component:
   ```shell
+  # Check the comments in the serviceMonitor section in values.yaml
   helm upgrade --install travel-time-chart helm/travel-time \
     --namespace development \
     --set serviceMonitor.enabled=true
