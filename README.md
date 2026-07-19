@@ -220,26 +220,41 @@ it and will push it to Dockerhub.
           -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
     ```
 
-- Create the helm chart: the chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
+- Deploy the model helm chart: the chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
 an HPA (2-10 pods at 60% CPU, needs `metrics-server`). Prediction requests then work exactly as above, against the
 NodePort printed by `helm install`.
 
   ```shell
   kubectl create namespace development
-  helm install --namespace development tt-chart helm/travel_time
+  helm install --namespace development travel-time-chart helm/travel-time
   ```
 
 - Test the service:
   ```shell
-  kubectl port-forward --namespace development svc/tt-chart-travel-time 8501:8501
+  kubectl port-forward --namespace development svc/travel-time-chart 8501:8501
+
   curl -X POST http://localhost:8501/v1/models/model_mean_std/versions/1:predict \
           -H 'Content-type: application/json' \
           -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
+  
+  # The exposed metrics can be found here:
+  http://localhost:8501/monitoring/prometheus/metrics
   ```
+
+- Deploy the Prometheus + Grafana helm chart: 
+  ```shell
+  # helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  
+  kubectl create namespace monitoring
+  helm install --namespace monitoring \
+    prometheus-chart prometheus-community/kube-prometheus-stack
+  ```
+
 
 - Destroy the helm chart and cleanup:
   ```shell
-  helm uninstall --namespace development tt-chart
+  helm uninstall --namespace development travel-time-chart
+  helm uninstall --namespace monitoring prometheus-chart
   ```
 
 Key knobs in `helm/travel_time/values.yaml`: `autoscaling.*`, `batching.*`, `resources`, and `tensorflow.*` (the
