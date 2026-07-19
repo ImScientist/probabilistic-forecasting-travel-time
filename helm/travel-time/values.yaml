@@ -64,3 +64,19 @@ tensorflow:
 # Exposes /monitoring/prometheus/metrics on the REST port.
 monitoring:
   enabled: true
+
+# Prometheus Operator ServiceMonitor that scrapes the endpoint above.
+# Requires the ServiceMonitor CRD, installed by kube-prometheus-stack /
+# prometheus-operator. Keep disabled on clusters without the operator, or
+# `helm install` fails with "no matches for kind ServiceMonitor".
+serviceMonitor:
+  enabled: false
+  path: /monitoring/prometheus/metrics
+  interval: 30s
+  scrapeTimeout: 10s
+  # The Prometheus Operator only scrapes ServiceMonitors matching its
+  # serviceMonitorSelector. kube-prometheus-stack defaults that to
+  # `release: <stack-release-name>`, so this MUST match the release name you
+  # gave `helm install ... prometheus-community/kube-prometheus-stack`.
+  labels:
+    release: prometheus-chart

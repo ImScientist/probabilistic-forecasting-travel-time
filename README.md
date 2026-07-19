@@ -248,8 +248,27 @@ NodePort printed by `helm install`.
   kubectl create namespace monitoring
   helm install --namespace monitoring \
     prometheus-chart prometheus-community/kube-prometheus-stack
+  
+  # Get Grafana 'admin' user name and password by running the following commands:
+  kubectl get secret --namespace monitoring -l app.kubernetes.io/component=admin-secret -o jsonpath="{.items[0].data.admin-password}" | base64 --decode ; echo
+  kubectl get secret --namespace monitoring -l app.kubernetes.io/component=admin-secret -o jsonpath="{.items[0].data.admin-user}" | base64 --decode ; echo
+  
+  kubectl port-forward --namespace monitoring svc/prometheus-chart-grafana 3000:80
+  # http://localhost:3000/
+  
+  kubectl port-forward --namespace monitoring svc/prometheus-chart-kube-prom-prometheus 9090:9090
+  # http://localhost:9090/
   ```
 
+- Add a ServiceMonitor component:
+  ```shell
+  helm upgrade --install travel-time-chart helm/travel-time \
+    --namespace development \
+    --set serviceMonitor.enabled=true
+  
+  # Check if http://localhost:9090/targets contains a target `travel-time`
+  # Execute the query `:tensorflow:serving:request_count`
+  ```
 
 - Destroy the helm chart and cleanup:
   ```shell
