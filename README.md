@@ -192,38 +192,55 @@ Two things make each pod go further:
   small MLP like this one the per-request overhead dominates the actual matrix multiply, so this is the largest single
   throughput win. `batching.batchTimeoutMicros` is the dial: a larger value fills fuller batches (more throughput) at
   the cost of added tail latency.
+
 - **gRPC instead of REST** (port 8500, exposed by the chart): avoids JSON parsing per request. Worth it for
   high-volume clients; the REST endpoint stays available for `curl`/browser use.
 
-The model is baked into an immutable image, so a pod carries the model with it and has no shared-storage dependency:
+To keep the testing simple across many different environments we will build a serving image that carries the model with 
+it and will push it to Dockerhub.
 
-```shell
-docker build -f Dockerfile.serving \
-  --build-arg SERVABLE_DIR=ex_000/model_mean_std \
-  -t travel_time_serving:ex_000 \
-  $ARTIFACTS_DIR
+- Image:
+    ```shell
+    IMAGE=$DOCKERHUB_USERNAME/travel_time_serving:ex_000
+    
+    docker build -f Dockerfile.serving \
+      --build-arg SERVABLE_DIR=ex_000/model_mean_std \
+      -t $IMAGE \
+      $ARTIFACTS_DIR
+    
+    docker push $IMAGE
+    ```
 
-# Test with
-docker run -t --rm -p 8501:8501 \
-  --name=serving \
-  travel_time_serving:ex_000
+- Test the image (optional):
+    ```shell
+    docker run -t --rm -p 8501:8501 --name=serving $IMAGE
+    
+    curl -X POST http://localhost:8501/v1/models/model_mean_std/versions/1:predict \
+          -H 'Content-type: application/json' \
+          -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
+    ```
 
-# make the image visible to the local cluster (kind shown; minikube: `minikube image load`)
-#kind load docker-image travel_time_serving:ex_000
-#
-#helm install tt helm/travel_time
-```
+- Create the helm chart: the chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
+an HPA (2-10 pods at 60% CPU, needs `metrics-server`). Prediction requests then work exactly as above, against the
+NodePort printed by `helm install`.
 
-- Create helm chart:
   ```shell
   kubectl create namespace development
   helm install --namespace development tt-chart helm/travel_time
-  helm uninstall --namespace development tt-chart
   ```
 
-The chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
-an HPA (2-10 pods at 60% CPU, needs `metrics-server`). Prediction requests then work exactly as above, against the
-NodePort printed by `helm install`.
+- Test the service:
+  ```shell
+  kubectl port-forward --namespace development svc/tt-chart-travel-time 8501:8501
+  curl -X POST http://localhost:8501/v1/models/model_mean_std/versions/1:predict \
+          -H 'Content-type: application/json' \
+          -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
+  ```
+
+- Destroy the helm chart and cleanup:
+  ```shell
+  helm uninstall --namespace development tt-chart
+  ```
 
 Key knobs in `helm/travel_time/values.yaml`: `autoscaling.*`, `batching.*`, `resources`, and `tensorflow.*` (the
 intra/inter-op thread pools, kept in line with the CPU limit so a pod does not spawn one thread per host core).
