@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "travel-time.fullname" . }}-config
+  labels:
+    {{- include "travel-time.labels" . | nindent 4 }}
+data:
+  {{- if .Values.batching.enabled }}
+  batching.config: |
+    max_batch_size { value: {{ .Values.batching.maxBatchSize | int64 }} }
+    batch_timeout_micros { value: {{ .Values.batching.batchTimeoutMicros | int64 }} }
+    max_enqueued_batches { value: {{ .Values.batching.maxEnqueuedBatches | int64 }} }
+    num_batch_threads { value: {{ .Values.batching.numBatchThreads | int64 }} }
+  {{- end }}
+  {{- if .Values.monitoring.enabled }}
+  monitoring.config: |
+    prometheus_config {
+      enable: true,
+      path: "/monitoring/prometheus/metrics"
+    }
+  {{- end }}
