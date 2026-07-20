@@ -1,0 +1,27 @@
+{{- if and .Values.monitoring.enabled .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "travel-time.fullname" . }}
+  labels:
+    {{- include "travel-time.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # Select the Service created by this chart by its selector labels.
+  selector:
+    matchLabels:
+      {{- include "travel-time.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    # `rest` is the named Service port (8501); TF Serving exposes the
+    # Prometheus endpoint there once monitoring.config is loaded.
+    - port: rest
+      path: {{ .Values.serviceMonitor.path }}
+      scheme: http
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+{{- end }}

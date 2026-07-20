@@ -220,26 +220,81 @@ it and will push it to Dockerhub.
           -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
     ```
 
-- Create the helm chart: the chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
+- Deploy the model helm chart: the chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
 an HPA (2-10 pods at 60% CPU, needs `metrics-server`). Prediction requests then work exactly as above, against the
 NodePort printed by `helm install`.
 
   ```shell
   kubectl create namespace development
-  helm install --namespace development tt-chart helm/travel_time
+  helm install --namespace development travel-time-chart helm/travel-time
   ```
 
 - Test the service:
   ```shell
-  kubectl port-forward --namespace development svc/tt-chart-travel-time 8501:8501
+  kubectl port-forward --namespace development svc/travel-time-chart 8501:8501
+
   curl -X POST http://localhost:8501/v1/models/model_mean_std/versions/1:predict \
           -H 'Content-type: application/json' \
           -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
+  
+  # The exposed metrics can be found here:
+  http://localhost:8501/monitoring/prometheus/metrics
   ```
+
+- Deploy the Prometheus + Grafana helm chart: 
+  ```shell
+  # helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  # helm repo update
+  
+  kubectl create namespace monitoring
+  helm install --namespace monitoring \
+    prometheus-chart prometheus-community/kube-prometheus-stack
+  
+  # Get Grafana 'admin' user name and password by running the following commands:
+  kubectl get secret --namespace monitoring -l app.kubernetes.io/component=admin-secret -o jsonpath="{.items[0].data.admin-password}" | base64 --decode ; echo
+  kubectl get secret --namespace monitoring -l app.kubernetes.io/component=admin-secret -o jsonpath="{.items[0].data.admin-user}" | base64 --decode ; echo
+  
+  kubectl port-forward --namespace monitoring svc/prometheus-chart-grafana 3000:80
+  # http://localhost:3000/
+  
+  kubectl port-forward --namespace monitoring svc/prometheus-chart-kube-prom-prometheus 9090:9090
+  # http://localhost:9090/
+  ```
+
+- Add a ServiceMonitor component:
+  ```shell
+  # Check the comments in the serviceMonitor section in values.yaml
+  helm upgrade --install travel-time-chart helm/travel-time \
+    --namespace development \
+    --set serviceMonitor.enabled=true
+  
+  # Check if http://localhost:9090/targets contains a target `travel-time`
+  # Execute the query `:tensorflow:serving:request_count`
+  ```
+
+- Enable the Horizontal Pod Autoscaler:
+  ```shell
+  # helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+  # helm repo update
+  
+  helm install metrics-server metrics-server/metrics-server \
+    --namespace development \
+    --set 'args={--kubelet-insecure-tls}'
+
+  # helm upgrade --install --namespace development travel-time-chart helm/travel-time \
+  #  --set autoscaling.enabled=true
+  
+  # Verify
+  kubectl get apiservice v1beta1.metrics.k8s.io   # should show AVAILABLE: True                                                                
+  kubectl top pods -n development                 # should list your model pods' CPU/mem   
+  ```
+
 
 - Destroy the helm chart and cleanup:
   ```shell
-  helm uninstall --namespace development tt-chart
+  helm uninstall --namespace development travel-time-chart
+  helm uninstall --namespace development metrics-server
+  helm uninstall --namespace monitoring prometheus-chart
   ```
 
 Key knobs in `helm/travel_time/values.yaml`: `autoscaling.*`, `batching.*`, `resources`, and `tensorflow.*` (the
