@@ -244,6 +244,7 @@ NodePort printed by `helm install`.
 - Deploy the Prometheus + Grafana helm chart: 
   ```shell
   # helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  # helm repo update
   
   kubectl create namespace monitoring
   helm install --namespace monitoring \
@@ -271,9 +272,28 @@ NodePort printed by `helm install`.
   # Execute the query `:tensorflow:serving:request_count`
   ```
 
+- Enable the Horizontal Pod Autoscaler:
+  ```shell
+  # helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+  # helm repo update
+  
+  helm install metrics-server metrics-server/metrics-server \
+    --namespace development \
+    --set 'args={--kubelet-insecure-tls}'
+
+  # helm upgrade --install --namespace development travel-time-chart helm/travel-time \
+  #  --set autoscaling.enabled=true
+  
+  # Verify
+  kubectl get apiservice v1beta1.metrics.k8s.io   # should show AVAILABLE: True                                                                
+  kubectl top pods -n development                 # should list your model pods' CPU/mem   
+  ```
+
+
 - Destroy the helm chart and cleanup:
   ```shell
   helm uninstall --namespace development travel-time-chart
+  helm uninstall --namespace development metrics-server
   helm uninstall --namespace monitoring prometheus-chart
   ```
 
