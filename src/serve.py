@@ -25,8 +25,16 @@ def prepare_servable_mean_std(load_dir: str):
     def std(**kwargs):
         return {'std': mdl.model(kwargs).stddev()}
 
+    @tf.function
+    def mean_std(**kwargs):
+        # One forward pass; `mean()`/`stddev()` are cheap closed-form reads off
+        # the returned distribution, so both come out of a single graph run.
+        rv = mdl.model(kwargs)
+        return {'mean_value': rv.mean(), 'std': rv.stddev()}
+
     fn_mean = mean_value.get_concrete_function(**input_signature)
     fn_std = std.get_concrete_function(**input_signature)
+    fn_mean_std = mean_std.get_concrete_function(**input_signature)
 
     logger.info(f'Store servable in {servable_dir}')
 
@@ -35,5 +43,6 @@ def prepare_servable_mean_std(load_dir: str):
         servable_dir,
         signatures={
             'mean_value': fn_mean,
-            'std': fn_std},
+            'std': fn_std,
+            'mean_std': fn_mean_std},
         options=None)

@@ -21,10 +21,10 @@ service:
 # replicas. Requests must be set for the HPA to have a percentage to work off.
 resources:
   requests:
-    cpu: 500m
+    cpu: 1000m
     memory: 512Mi
   limits:
-    cpu: "2"
+    cpu: 1000m
     memory: 1Gi
 
 autoscaling:
@@ -46,7 +46,20 @@ batching:
   maxBatchSize: 128
   # How long a partial batch waits for company. This is added directly to
   # tail latency, so it is the batching throughput/latency dial.
-  batchTimeoutMicros: 5000
+  #
+  # This was 5000. Measured on one 2-CPU pod, a single-row request then spent
+  # 5538 us of its 6764 us waiting here -- i.e. batches were timing out rather
+  # than filling, so we paid the full latency cost for almost no batching
+  # benefit. Dropping to 500 us bounds that wait at <=500 us while still fusing
+  # requests whenever the arrival rate is high enough to actually fill a batch.
+  #
+  # Tuning rule: compare the observed queuing latency against this value.
+  #   histogram_quantile(0.95, sum(rate(
+  #     :tensorflow:serving:batching_session:queuing_latency_bucket[5m])) by (le))
+  # If it sits at the timeout, batches are not filling -> lower it (or raise it
+  # only if you are throughput-bound and can spend the latency). See
+  # docs/serving-latency.md.
+  batchTimeoutMicros: 500
   maxEnqueuedBatches: 1000000
   # Keep in the same ballpark as the CPU limit; more threads than cores just
   # adds contention.
