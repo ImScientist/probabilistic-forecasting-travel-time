@@ -1,0 +1,51 @@
+# In-cluster load generator for HPA testing.
+# Run from inside the cluster (never via port-forward) so it hits the ClusterIP
+# Service directly and load-balances across pods:
+#   kubectl apply -f k8s/loadtest-job.yaml
+#   kubectl logs -n development -f job/loadtest-hey
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadtest-payload
+  namespace: development
+data:
+  payload.json: |
+    {"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1],
+     "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5],
+     "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5],
+     "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: loadtest-hey
+  namespace: development
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hey
+          image: williamyeh/hey:latest
+          # -z 3m  : run for 3 minutes
+          # -c 200 : 200 concurrent workers (raise to push harder)
+          args:
+            - "-z"
+            - "3m"
+            - "-c"
+            - "200"
+            - "-m"
+            - "POST"
+            - "-H"
+            - "Content-Type: application/json"
+            - "-D"
+            - "/data/payload.json"
+            - "http://travel-time-chart.development.svc.cluster.local:8501/v1/models/model_mean_std:predict"
+          volumeMounts:
+            - name: payload
+              mountPath: /data
+      volumes:
+        - name: payload
+          configMap:
+            name: loadtest-payload
