@@ -200,36 +200,45 @@ To keep the testing simple across many different environments we will build a se
 it and will push it to Dockerhub.
 
 - Image:
-    ```shell
-    IMAGE=$DOCKERHUB_USERNAME/travel_time_serving:ex_000
+  ```shell
+  IMAGE=$DOCKERHUB_USERNAME/travel_time_serving:ex_000
     
-    docker build -f Dockerfile.serving \
-      --build-arg SERVABLE_DIR=ex_000/model_mean_std \
-      -t $IMAGE \
-      $ARTIFACTS_DIR
+  docker build -f Dockerfile.serving \
+    --build-arg SERVABLE_DIR=ex_000/model_mean_std \
+    -t $IMAGE \
+    $ARTIFACTS_DIR
     
-    docker push $IMAGE
-    ```
+  docker push $IMAGE
+  ```
 
-- Test the image (optional):
-    ```shell
-    docker run -t --rm -p 8501:8501 --name=serving $IMAGE
+  Test the image (optional):
+  ```shell
+  docker run -t --rm -p 8501:8501 --name=serving $IMAGE
     
-    curl -X POST http://localhost:8501/v1/models/model_mean_std/versions/1:predict \
-          -H 'Content-type: application/json' \
-          -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
-    ```
+  curl -X POST http://localhost:8501/v1/models/model_mean_std/versions/1:predict \
+        -H 'Content-type: application/json' \
+        -d '{"signature_name": "mean_value", "instances": [{"time": [571.0], "trip_distance": [1.1], "pickup_lon": [-73.991791], "pickup_lat": [40.736072], "pickup_area": [1e-5], "dropoff_lon": [-73.991142], "dropoff_lat": [40.734538], "dropoff_area": [2e-5], "passenger_count": [1], "vendor_id": [1], "weekday": [1], "month": [1]}]}'
+  ```
+
+- Update helm repositories. They are required to install additional components that can be used to automatically scale and monitor the service:
+  ```shell
+  helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+  helm repo update
+  ```
 
 - Deploy the model helm chart: the chart deploys the Deployment + Service (REST 8501, gRPC 8500), a ConfigMap with the batching/monitoring config, and
-an HPA (2-10 pods at 60% CPU, needs `metrics-server`). Prediction requests then work exactly as above, against the
-NodePort printed by `helm install`.
+an HPA (2-10 pods at 60% CPU, needs `metrics-server`).
 
   ```shell
   kubectl create namespace development
-  helm install --namespace development travel-time-chart helm/travel-time
+
+  helm install --namespace development travel-time-chart helm/travel-time \
+    --set autoscaling.enabled=true \
+    --set serviceMonitor.enabled=true
   ```
 
-- Test the service:
+  Test the service. Prediction requests then work exactly as above:
   ```shell
   kubectl port-forward --namespace development svc/travel-time-chart 8501:8501
 
@@ -243,12 +252,8 @@ NodePort printed by `helm install`.
 
 - Deploy the Prometheus + Grafana helm chart: 
   ```shell
-  # helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-  # helm repo update
-  
   kubectl create namespace monitoring
-  helm install --namespace monitoring \
-    prometheus-chart prometheus-community/kube-prometheus-stack
+  helm install --namespace monitoring prometheus-chart prometheus-community/kube-prometheus-stack
   
   # Get Grafana 'admin' user name and password by running the following commands:
   kubectl get secret --namespace monitoring -l app.kubernetes.io/component=admin-secret -o jsonpath="{.items[0].data.admin-password}" | base64 --decode ; echo
@@ -261,34 +266,22 @@ NodePort printed by `helm install`.
   # http://localhost:9090/
   ```
 
-- Add a ServiceMonitor component:
-  ```shell
-  # Check the comments in the serviceMonitor section in values.yaml
-  helm upgrade --install travel-time-chart helm/travel-time \
-    --namespace development \
-    --set serviceMonitor.enabled=true
-  
-  # Check if http://localhost:9090/targets contains a target `travel-time`
-  # Execute the query `:tensorflow:serving:request_count`
-  ```
+  To check if the Prometheus is scraping the ServiceMonitor component installed with the `travel-time-chart` you can 
+  either check if `http://localhost:9090/targets` contains a target `travel-time` or check if the query 
+  `:tensorflow:serving:request_count` in `http://localhost:9090/query` returns a non-empty result.
 
-- Enable the Horizontal Pod Autoscaler:
+- Deploy the metrics-server. It is needed by the Horizontal Pod Autoscaler. The metrics-server can be installed in any
+  namespace:
   ```shell
-  # helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
-  # helm repo update
-  
   helm install metrics-server metrics-server/metrics-server \
     --namespace development \
-    --set 'args={--kubelet-insecure-tls}'
-
-  # helm upgrade --install --namespace development travel-time-chart helm/travel-time \
-  #  --set autoscaling.enabled=true
-  
-  # Verify
+    --set 'args={--kubelet-insecure-tls}'   
+  ```
+  To verify that it runs you can execute one of the following commands:
+  ```shell
   kubectl get apiservice v1beta1.metrics.k8s.io   # should show AVAILABLE: True                                                                
   kubectl top pods -n development                 # should list your model pods' CPU/mem   
   ```
-
 
 - Destroy the helm chart and cleanup:
   ```shell
